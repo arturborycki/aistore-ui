@@ -1,6 +1,6 @@
 # AIStor Catalog UI — Design
 
-Status: **Draft v0.1** · Scope: multi-user, secure web UI for the MinIO AIStor Tables (Iceberg REST) catalog.
+Status: **Draft v0.2** (checked against the AIStor Tables API Reference, 2026-09-28) · Scope: multi-user, secure web UI for the MinIO AIStor Tables (Iceberg REST) catalog.
 
 ---
 
@@ -9,12 +9,12 @@ Status: **Draft v0.1** · Scope: multi-user, secure web UI for the MinIO AIStor 
 ### Goals
 1. **Real multi-user access.** Every catalog call runs as the signed-in person, under that person's MinIO identity and policies. The UI has **no shared "service account"** that could give a user more access than MinIO grants them.
 2. **Secure by default.** The browser never sees MinIO access keys, STS session tokens or vended storage credentials. OWASP ASVS L2 is the baseline.
-3. **Full catalog coverage.** Warehouses, namespaces (nested), tables, views, snapshots, refs, schema/partition evolution, multi-table transactions, register/unregister, and rename.
+3. **Full catalog coverage.** Warehouses, namespaces (nested), tables, views, snapshots, refs, schema/partition evolution, multi-table transactions, register, rename, **data preview**, **maintenance** (snapshot expiry, compaction, orphan-file removal), **encryption** and **tags**.
 4. **Traceable.** Every change can be traced to a person: MinIO audit logs show the real user, and the UI's backend writes a correlated audit record.
 5. **Built for operators.** Deploys as a stateless container, scales out, is configured with env/files, and exposes health and metrics endpoints.
 
 ### Non-goals (v1)
-- Running SQL or reading table data. The UI manages metadata only; a data preview is a later phase (§11).
+- Running SQL. Reading data is limited to AIStor's built-in `PreviewTable` (at most 1000 rows).
 - Managing IAM policies. That stays in `mc admin` / the AIStor Console. The UI helps policy authors by showing ARNs, but it does not change IAM.
 - Delta Sharing management.
 
@@ -22,48 +22,86 @@ Status: **Draft v0.1** · Scope: multi-user, secure web UI for the MinIO AIStor 
 
 ## 2. API surface (what the UI consumes)
 
-Base path: `https://<aistor>/_iceberg/v1`. Every request is **AWS SigV4-signed with service name `s3tables`**.
+Source: *AIStor Tables API Reference* (docs.min.io, snapshot 2026-09-28).
+Base path: `https://<aistor>/_iceberg/v1`. Every request is **AWS SigV4-signed with service name `s3tables`**. The request carries the `Authorization`, `X-Amz-Date` and `X-Amz-Content-SHA256` headers.
 Warehouses are AIStor's term for AWS "table buckets". `{prefix}` in the Iceberg spec is the warehouse name.
+AIStor puts every route in one of two groups: **spec endpoints**, which `GET /config` lists in `endpoints`, and **extension endpoints**, which it serves without listing them. At startup the UI reads `endpoints` and hides features the connected server doesn't serve.
 
-> ⚠️ The MinIO docs site (`docs.min.io`) was not reachable from the design environment. The list below combines
-> (a) facts about AIStor Tables confirmed through search, and (b) the upstream Iceberg REST OpenAPI spec. AIStor implements
-> a *subset* of the Iceberg spec. Items marked **[verify]** must be checked against the AIStor API reference before implementation (§13).
-
-### 2.1 AIStor extensions — warehouses
-| Method | Path | Purpose | Policy action |
+### 2.1 Iceberg REST spec endpoints (served)
+| Method | Path | Operation | Action / Resource |
 |---|---|---|---|
-| POST | `/warehouses` body `{"name","upgrade-existing"}` | Create a warehouse. AIStor creates a bucket with versioning and purge-on-delete. `upgrade-existing` converts an existing bucket | `s3tables:CreateWarehouse` (alias `CreateTableBucket`) |
-| GET | `/warehouses` | List warehouses | `s3tables:ListWarehouses` |
-| GET | `/warehouses/{warehouse}` **[verify]** | Get warehouse details | `s3tables:GetWarehouse` / `GetTableBucket` |
-| DELETE | `/warehouses/{warehouse}` **[verify]** | Delete a warehouse | `s3tables:DeleteWarehouse` **[verify]** |
+| GET | `/config` | GetConfig | — (advertises `s3.delete-enabled=false`) |
+| POST | `/{wh}/namespaces` | CreateNamespace | `s3tables:CreateNamespace` · `bucket/{wh}` |
+| GET | `/{wh}/namespaces` | ListNamespaces (`parent`, `search`, paging, `stats`) | `s3tables:ListNamespaces` · `bucket/{wh}` |
+| GET / HEAD | `/{wh}/namespaces/{ns}` | GetNamespace / NamespaceExists | `s3tables:GetNamespace` · `bucket/{wh}` |
+| DELETE | `/{wh}/namespaces/{ns}` | DeleteNamespace (must be empty) | `s3tables:DeleteNamespace` · `bucket/{wh}` |
+| POST | `/{wh}/namespaces/{ns}/properties` | UpdateNamespaceProperties | `s3tables:UpdateNamespaceProperties` |
+| POST | `/{wh}/namespaces/{ns}/tables` | CreateTable (`stage-create` supported) | `s3tables:CreateTable` · `bucket/{wh}/table/*` · conditions `s3tables:namespace`, `s3tables:tableName`, `s3tables:SSEAlgorithm` |
+| GET | `/{wh}/namespaces/{ns}/tables` | ListTables (`search`, paging, `stats`) | `s3tables:ListTables` |
+| POST | `/{wh}/namespaces/{ns}/register` | RegisterTable | [verify action] |
+| GET / HEAD | `/{wh}/namespaces/{ns}/tables/{t}` | LoadTable / TableExists | `s3tables:GetTable` · `bucket/{wh}/table/*` |
+| POST | `/{wh}/namespaces/{ns}/tables/{t}` | CommitTable | `s3tables:UpdateTable` |
+| DELETE | `/{wh}/namespaces/{ns}/tables/{t}` | DeleteTable (`purgeRequested`, **default `true`**) | `s3tables:DeleteTable` · `bucket/{wh}/table/*` |
+| POST | `/{wh}/tables/rename` | RenameTable (can move between namespaces) | `s3tables:RenameTable` |
+| POST | `/{wh}/transactions/commit` | CommitMultiTableTransaction | [verify action] |
+| POST | `/{wh}/namespaces/{ns}/tables/{t}/metrics` | TableMetrics | not used by the UI |
+| POST / GET | `/{wh}/namespaces/{ns}/views` | CreateView / ListViews | [verify actions] |
+| GET / HEAD / POST / DELETE | `/{wh}/namespaces/{ns}/views/{v}` | LoadView / ViewExists / CommitView / DropView | [verify actions] |
+| POST | `/{wh}/views/rename` | RenameView | [verify action] |
+| POST | `/{wh}/namespaces/{ns}/register-view` | RegisterView | [verify action] |
 
-### 2.2 Iceberg REST catalog (from the spec; AIStor coverage **[verify]**)
-| Area | Operations |
+**Not served:** scan planning (`/plan`, `/tasks`) and table credentials (`/credentials`). Also not listed, so treated as unsupported: `unregister`, `sign`, `functions` and `oauth/tokens`.
+
+### 2.2 AIStor extension endpoints
+| Method | Path | Operation | Action |
+|---|---|---|---|
+| POST | `/warehouses` `{"name","upgrade-existing"}` | CreateWarehouse. Creates the bucket with versioning (can't be suspended afterwards) and purge-on-delete | `s3tables:CreateWarehouse` |
+| GET | `/warehouses` (`search`, paging, `stats`) | ListWarehouses (returns only the warehouses the caller can access) | `s3tables:ListWarehouses` |
+| GET | `/warehouses/{wh}` | GetWarehouse → `{name,bucket,uuid,created-at,properties}` | `s3tables:GetWarehouse` · `bucket/{wh}` |
+| DELETE | `/warehouses/{wh}?preserve-bucket=` | DeleteWarehouse (must have no namespaces; `preserve-bucket` defaults to false) | `s3tables:DeleteWarehouse` · `bucket/{wh}` |
+| PUT / GET / DELETE | `/warehouses/{wh}/encryption` | Put / Get / DeleteWarehouseEncryption | [verify actions] |
+| GET / POST / DELETE | `/warehouses/{wh}/tags` | ListWarehouseTags / TagWarehouse / UntagWarehouse | [verify actions] |
+| PUT | `/{wh}/maintenance/{type}` | PutWarehouseMaintenanceConfiguration | [verify] |
+| GET | `/{wh}/maintenance` | GetWarehouseMaintenanceConfiguration | [verify] |
+| PUT / DELETE | `/{wh}/namespaces/{ns}/tables/{t}/maintenance/{type}` | Put / DeleteTableMaintenanceConfiguration | [verify] |
+| GET | `/{wh}/namespaces/{ns}/tables/{t}/maintenance` | GetTableMaintenanceConfiguration | [verify] |
+| GET | `/{wh}/namespaces/{ns}/tables/{t}/maintenance-job-status` | GetTableMaintenanceJobStatus → per-type `status` (`Successful`, `Failed`, `Disabled`, `Not_Yet_Run`), `lastRunTimestamp`, `failureMessage`, `tableARN` | `s3tables:GetTableMaintenanceJobStatus` |
+| PUT / GET | `/{wh}/namespaces/{ns}/tables/{t}/encryption` | Put / GetTableEncryption | [verify] |
+| GET / POST / DELETE | `/{wh}/namespaces/{ns}/tables/{t}/tags` | ListTableTags / TagTable / UntagTable | [verify] |
+| GET | `/{wh}/namespaces/{ns}/tables/{t}/snapshots` | ListTableSnapshots | [verify] |
+| GET | `/{wh}/namespaces/{ns}/tables/{t}/preview?limit=` | PreviewTable. Up to 1000 rows (default 100) → `{schema:[{name,type}], rows, row_count}` | `s3tables:GetTableData` |
+| GET | `/stats` | GetGlobalStats | [verify] |
+
+The warehouse encryption, tags and maintenance routes also exist under `/buckets/{wh}/…` for AWS compatibility. The UI uses only the `/warehouses` form.
+Maintenance types: `icebergSnapshotManagement`, `icebergCompaction`, `icebergUnreferencedFileRemoval`.
+
+### 2.3 Listing: search and statistics mode (built for UIs)
+- `search=`: a case-insensitive substring filter on names. It works with warehouses, namespaces and tables.
+- `stats=true` switches to **index-based paging**: `page` (0-based), `page_size` (default 100, max 1000), `sort`, `sort_order` (`asc`/`desc`) and `ui_token`. Each response adds `stats: {name: {namespaces?, tables?, records, size}}` and two headers: **`X-Minio-Ui-List-Token`**, which must be passed back as `ui_token` so paging reaches the node holding the cache, and **`X-Minio-Ui-Total-Count`**.
+- Sort values: warehouses `namespaces|tables|records|size`, namespaces `tables|records|size`, tables `records|size`.
+- The BFF must pass those two headers through to the browser. The UI's data grids use stats mode, giving a sortable and paginated view with total counts.
+
+### 2.4 Constraints and intentional deviations the UI must enforce
+| Item | Rule |
 |---|---|
-| Config | `GET /config?warehouse=` |
-| Namespaces | list (`?parent=`, paginated), create, load, exists (HEAD), drop, `POST …/properties` (updates/removals) |
-| Tables | list, create (incl. `stage-create`), load (`?snapshots=all\|refs`), exists, **commit** (`POST …/tables/{t}` with `requirements` + `updates`), drop (`?purgeRequested=`), register, unregister, rename, metrics, `loadCredentials`, `sign` |
-| Views | list, create, load, **replace** (commit), exists, drop, rename, register-view |
-| Transactions | `POST /{prefix}/transactions/commit` (multi-table, atomic) |
-| Scan planning | plan / fetch plan / cancel / tasks (probably **not** implemented by AIStor **[verify]**) |
-| Functions | list / load (new in spec; probably not in AIStor **[verify]**) |
-| OAuth | `POST /oauth/tokens`. **Not used**: AIStor uses SigV4, and this endpoint is deprecated upstream. |
+| Warehouse name | 3–63 characters: lowercase letters, digits, `-` |
+| Table name | 1–250 characters: lowercase letters, digits, `_` |
+| Namespace | 1–10 levels. No `/` in any name |
+| Properties | Each key and value at most 2 KB. Table properties can't start with `write.data.path`, and most `write.metadata.*` are unsupported |
+| Create table | No custom `location`. **No default column values**. `stage-create=true` returns a draft (`metadata-location: null`) that stays hidden from list/load until its first commit |
+| Views | No custom metadata location. Drop takes no purge parameter |
+| **Drop table** | **`purgeRequested` defaults to `true` on AIStor. Leaving the parameter out deletes the data files.** The BFF **always sends it explicitly** (§5.3) |
+| Register table | Fails if the table's data was already purged |
+| Client file deletion | `/config` advertises `s3.delete-enabled=false` |
 
-Protocol details the client must handle:
-- **Nested namespaces** are joined with the unit separator `0x1F` and URL-encoded as `%1F` in paths. The server may say otherwise in the `namespace-separator` value from `/config` **[verify]**.
-- **Pagination** uses `pageToken` / `pageSize` on list endpoints.
-- **Optimistic concurrency.** Commits carry `requirements` (`assert-current-schema-id`, `assert-ref-snapshot-id`, `assert-table-uuid`, …). A `409 CommitFailedException` must show a "someone else changed this" dialog and must not retry blindly.
-- **Vended credentials.** The client requests them with the `X-Iceberg-Access-Delegation: vended-credentials` header. AIStor then returns short-lived S3 credentials limited to the table prefix. **The UI must never ask for them** (§5.4).
-
-### 2.3 Authorization model (MinIO PBAC)
-- The `s3tables:` action namespace.
-- Resource ARNs:
-  - `arn:aws:s3tables:::bucket/{warehouse}`
-  - `arn:aws:s3tables:::bucket/{warehouse}/table/{table-uuid|*}`
-  - `arn:aws:s3tables:::bucket/{warehouse}/view/{view-uuid|*}`
-  - Table and view ARNs use the **stable UUID**, not the name. This matters for the UI: renames don't change access, and the UI shows the ARN so admins can write exact policies.
-- Warehouse action names accept both spellings (`…Warehouse` and `…TableBucket`).
-- The condition key `s3tables:SSEAlgorithm` applies to `CreateWarehouse` and `CreateTable`.
+### 2.5 Authorization model (MinIO PBAC)
+- Uses the `s3tables:` action namespace. Warehouse actions also accept the AWS spelling (`…TableBucket`).
+- ARNs:
+  - `arn:aws:s3tables:::bucket/{wh}`
+  - `arn:aws:s3tables:::bucket/{wh}/table/{uuid|*}`
+  - `arn:aws:s3tables:::bucket/{wh}/view/{uuid|*}`
+- Table and view ARNs end in the **stable UUID**, so renames keep their access rules. `maintenance-job-status` returns the `tableARN`.
+- **What this means for multi-tenancy:** namespace operations are authorized on the **warehouse** ARN, and the `s3tables:namespace` / `s3tables:tableName` condition keys narrow `CreateTable`. The cleanest isolation boundary is therefore **one warehouse per team or tenant**. Per-table grants by UUID work within that. The Access helper (§7) creates policies that follow this pattern.
 
 ---
 
@@ -142,14 +180,15 @@ In every case, the only credential that persists is a **short-lived STS triple**
 ### 5.3 Destructive-operation safeguards
 | Action | Guard |
 |---|---|
-| Drop warehouse | Type the name to confirm, **step-up re-authentication** (OIDC `max_age=0` / `prompt=login`), and a warning that the bucket is purged |
-| Drop table with `purgeRequested=true` | Type the name, step-up re-auth, and a note that data files are deleted |
-| Drop table (metadata only), drop view, drop namespace | Type the name to confirm |
+| Drop warehouse | Allowed only when the warehouse is empty. Type the name to confirm, **step-up re-authentication** (OIDC `max_age=0` / `prompt=login`). "Keep bucket" (`preserve-bucket=true`) is **checked by default** |
+| Drop table | The BFF API has a **required** `purge` boolean with no default. The BFF **always** sends `purgeRequested=true\|false` explicitly, because AIStor's default of `true` would otherwise delete data. The dialog defaults to "Keep data files" (`false`). Choosing purge needs the typed name plus step-up re-auth |
+| Drop view, drop namespace (must be empty) | Type the name to confirm |
+| Change warehouse/table encryption, turn off maintenance | Confirmation dialog showing the before and after settings |
 | Rollback / set current snapshot, schema changes | A diff preview, then the commit is sent with `requirements` for optimistic concurrency |
 
 ### 5.4 Credential hygiene
 - The BFF **never sends** `X-Iceberg-Access-Delegation` and **deletes** any `config` keys matching `s3.*`, `*secret*`, `*token*`, `*credential*` and the `storage-credentials` array from `loadTable` / `loadView` responses before sending them to the browser. This is defense in depth.
-- `loadCredentials` and `sign` are **not in the route table**.
+- AIStor doesn't serve `/credentials`, and `sign` isn't in the route table either. The BFF also has no route that can reach them.
 - Logs pass through a redaction layer. SigV4 headers, cookies and bodies of auth endpoints are never logged.
 - TLS to AIStor always verifies certificates, with an optional per-cluster CA bundle. There is no "skip verify" flag in production builds.
 
@@ -183,7 +222,8 @@ Error mapping: `401` or an expired STS session → quiet refresh, else re-login.
 /c/:cluster                                   → Warehouses
 /c/:cluster/wh/:wh                            → Warehouse overview + namespace tree
 /c/:cluster/wh/:wh/ns/:ns                     → Namespace (tables · views · properties)
-/c/:cluster/wh/:wh/ns/:ns/t/:table/:tab       → Table (overview|schema|partitions|snapshots|refs|properties|metadata|access)
+/c/:cluster/wh/:wh/settings/:tab             → Warehouse (encryption|tags|maintenance)
+/c/:cluster/wh/:wh/ns/:ns/t/:table/:tab       → Table (overview|preview|schema|partitions|snapshots|refs|maintenance|encryption|tags|properties|metadata|access)
 /c/:cluster/wh/:wh/ns/:ns/v/:view/:tab        → View  (overview|sql|versions|schema|properties|access)
 /activity                                     → My audit trail (admins: all)
 /settings                                     → Profile, session info, theme
@@ -198,7 +238,7 @@ Error mapping: `401` or an expired STS session → quiet refresh, else re-login.
 │ ▸ analytics       │ ┌──────────────────────────────────────────────────────┐ │
 │ ▾ sales           │ │ orders   TABLE  v2  uuid 7c1e…  [Copy ARN] [⋯]       │ │
 │   ▾ finance       │ ├──────────────────────────────────────────────────────┤ │
-│     ▾ q3          │ │ Overview│Schema│Partitions│Snapshots│Refs│Props│JSON │ │
+│     ▾ q3          │ │ Overview│Preview│Schema│Snapshots│Maintenance│Props│…  │ │
 │       ▦ orders    │ │                                                      │ │
 │       ▦ invoices  │ │  Current snapshot  8841…  2026-09-28 14:02  append   │ │
 │       ◇ v_revenue │ │  Records  12.4 M   Files 312   Size 4.1 GiB           │ │
@@ -207,26 +247,31 @@ Error mapping: `401` or an expired STS session → quiet refresh, else re-login.
 │ [+ Warehouse]     │ └──────────────────────────────────────────────────────┘ │
 └───────────────────┴──────────────────────────────────────────────────────────┘
 ```
-- The left tree loads lazily: namespaces with `?parent=`, and tables and views when a node is expanded.
+- The left tree loads lazily: namespaces with `?parent=`, and tables and views when a node is expanded. The filter box uses the server-side `search` parameter.
+- Main-pane lists use **stats mode**. The grid keeps the `ui_token` from `X-Minio-Ui-List-Token` for the life of the query and shows the total from `X-Minio-Ui-Total-Count`.
 - A command palette (⌘K) searches recently loaded items and jumps to a path.
 - The layout is keyboard-first, meets WCAG 2.2 AA, and supports dark and light themes.
 
 ### 7.2 Key screens
 | Screen | Contents | Calls |
 |---|---|---|
-| **Warehouses** | Card or table list: name, created, table count (lazy). Create dialog: name, "upgrade existing bucket" toggle | `GET/POST/DELETE /warehouses` |
+| **Home / Overview** | Cluster-wide totals and top warehouses by size and records | `GET /stats`, `GET /warehouses?stats=true&sort=size` |
+| **Warehouses** | Sortable, paginated grid (stats mode): name, namespaces, tables, records, size, with server-side `search`. Detail drawer: bucket, UUID, created-at, properties. Create dialog: name (validated 3–63 characters, `[a-z0-9-]`) and an "upgrade existing bucket" toggle. Warehouse settings tabs: **Encryption**, **Tags**, **Maintenance** (defaults for the warehouse) | `/warehouses*`, `/{wh}/maintenance*` |
 | **Namespace** | Tabs for Tables, Views and Properties. The properties editor makes a single `updates`/`removals` commit and shows the server's `updated/removed/missing` result | namespaces + properties endpoints |
-| **Table › Overview** | UUID, format version, location, current snapshot summary (from `snapshot.summary`), last updated | `loadTable` |
+| **Table › Overview** | UUID, ARN, format version, location, current snapshot summary, last updated, and a **maintenance health** badge (worst status across job types) | `loadTable`, `maintenance-job-status` |
+| **Table › Preview** | Virtualized grid of up to 1000 rows (row limit 100/500/1000), column types from the response. The permission needed is `s3tables:GetTableData`, which is separate from `GetTable`, so this tab has its own no-access state | `…/preview?limit=` |
+| **Table › Maintenance** | For each type (snapshot management, compaction, unreferenced-file removal): the settings (table override or inherited from the warehouse) and the last run status, time and failure message | `…/maintenance`, `…/maintenance-job-status` |
+| **Table › Encryption / Tags** | Current SSE settings and a key/value tag editor | `…/encryption`, `…/tags` |
 | **Table › Schema** | A tree of nested struct/list/map fields with field IDs, required flags and docs. A **schema-history diff** across `schemas[]`. The "Evolve schema" wizard adds, renames, widens or makes fields optional, then shows a preview. The commit uses `add-schema` + `set-current-schema` with `assert-current-schema-id` | commit |
 | **Table › Partitions / Sort** | Specs and sort orders with history. Evolve wizard (`add-spec`, `set-default-spec`) | commit |
-| **Table › Snapshots** | A timeline (append/overwrite/delete/replace), summary metrics per snapshot, parent chain. Actions: **rollback** (`set-snapshot-ref main` + `assert-ref-snapshot-id`) and **create branch/tag** here | `loadTable?snapshots=all`, commit |
+| **Table › Snapshots** | A timeline (append/overwrite/delete/replace), summary metrics per snapshot, parent chain. Actions: **rollback** (`set-snapshot-ref main` + `assert-ref-snapshot-id`) and **create branch/tag** here | `…/snapshots` (fallback: `loadTable`), commit |
 | **Table › Refs** | Branches and tags, with retention settings (`max-ref-age-ms`, …). Create, update or remove refs | commit |
 | **Table › Properties** | Key/value editor with known-property hints (e.g. `write.format.default`, `history.expire.*`). Uses `set-properties` / `remove-properties` | commit |
 | **Table › Metadata** | Read-only JSON of the metadata (redacted), metadata log, and a download button | `loadTable` |
 | **Table › Access** | The table ARN, sample read-only and read-write policy snippets for this table, and the actions needed for each UI operation | none (local) |
 | **View** | SQL representations per dialect (read-only Monaco), version history with a diff between versions, schema, properties. Create or replace view (SQL editor + schema), rename, drop | views endpoints |
-| **Create table** | Schema builder (field grid + JSON mode), partition spec builder (identity/bucket/truncate/year/month/day/hour), sort order, properties, format version | `createTable` |
-| **Register table** | Metadata-location input (validated to be inside the warehouse's bucket) | `register` |
+| **Create table** | Schema builder (field grid + JSON mode), partition spec builder (identity/bucket/truncate/year/month/day/hour), sort order, properties, format version. Rules checked in the form: name `[a-z0-9_]{1,250}`, **no default values**, no location field, blocks `write.data.path*` and unsupported `write.metadata.*`, and each property at most 2 KB | `createTable` |
+| **Register table / view** | Metadata-location input (validated to be inside the warehouse's bucket). The UI warns that registration fails if the data was purged | `register`, `register-view` |
 | **Batch changes** | An optional "change set" tray: stage changes across several tables and apply them atomically | `transactions/commit` |
 | **Activity** | Filterable audit trail, as described in §5.5 | BFF only |
 
@@ -240,21 +285,31 @@ POST   /auth/login/oidc           → 302 to IdP        GET /auth/callback
 POST   /auth/login/ldap           {username,password}
 POST   /auth/logout               GET /auth/me        POST /auth/step-up
 GET    /api/clusters
-GET    /api/c/:c/warehouses                 POST …   DELETE /api/c/:c/wh/:wh  (step-up)
+GET    /api/stats
+GET    /api/c/:c/warehouses?search=&stats=&page=&page_size=&sort=&sort_order=&ui_token=   POST …
+GET    /api/c/:c/wh/:wh        DELETE /api/c/:c/wh/:wh?preserveBucket=   (step-up)
+GET|PUT|DELETE /api/c/:c/wh/:wh/encryption     GET|POST|DELETE /api/c/:c/wh/:wh/tags
+GET    /api/c/:c/wh/:wh/maintenance            PUT /api/c/:c/wh/:wh/maintenance/:type
 GET    /api/c/:c/wh/:wh/config
-GET    /api/c/:c/wh/:wh/namespaces?parent=&pageToken=
+GET    /api/c/:c/wh/:wh/namespaces?parent=&search=&pageToken=  (or stats-mode params)
 POST   /api/c/:c/wh/:wh/namespaces          GET|DELETE /api/c/:c/wh/:wh/ns/:ns
 POST   /api/c/:c/wh/:wh/ns/:ns/properties
 GET    /api/c/:c/wh/:wh/ns/:ns/tables       POST (create)   POST …/register
 GET    /api/c/:c/wh/:wh/ns/:ns/t/:t?snapshots=all|refs
 POST   /api/c/:c/wh/:wh/ns/:ns/t/:t/commit  {requirements, updates}
-DELETE /api/c/:c/wh/:wh/ns/:ns/t/:t?purge=  (purge ⇒ step-up)
+DELETE /api/c/:c/wh/:wh/ns/:ns/t/:t?purge=true|false   (required; purge=true ⇒ step-up)
+GET    /api/c/:c/wh/:wh/ns/:ns/t/:t/preview?limit=   (1..1000)
+GET    /api/c/:c/wh/:wh/ns/:ns/t/:t/snapshots
+GET    /api/c/:c/wh/:wh/ns/:ns/t/:t/maintenance       PUT|DELETE …/maintenance/:type   GET …/maintenance-job-status
+GET|PUT /api/c/:c/wh/:wh/ns/:ns/t/:t/encryption   GET|POST|DELETE …/tags
 POST   /api/c/:c/wh/:wh/tables/rename
-GET|POST /api/c/:c/wh/:wh/ns/:ns/views       GET|POST|DELETE …/v/:v   POST /api/c/:c/wh/:wh/views/rename
+GET|POST /api/c/:c/wh/:wh/ns/:ns/views       GET|POST|DELETE …/v/:v   POST …/register-view   POST /api/c/:c/wh/:wh/views/rename
 POST   /api/c/:c/wh/:wh/transactions/commit
 GET    /api/activity
 GET    /healthz  /readyz  /metrics (Prometheus, served on a separate port)
 ```
+List responses pass the `X-Minio-Ui-List-Token` and `X-Minio-Ui-Total-Count` headers through unchanged. The `:type` parameter is an enum: `icebergSnapshotManagement|icebergCompaction|icebergUnreferencedFileRemoval`.
+
 Namespaces in BFF URLs are carried as a dot-free, URL-safe encoding of the level array (for example, base64url of a JSON array). This avoids mixing up `.` and `%1F`. The BFF turns it back into the Iceberg `%1F` form.
 
 ---
@@ -289,7 +344,7 @@ clusters:
   - id: prod-eu
     name: Production EU
     endpoint: https://aistor.eu.example.com:9000
-    region: us-east-1           # SigV4 region [verify default]
+    region: us-east-1           # SigV4 signing region (must match the server's configured region)
     caFile: /certs/aistor-ca.pem
     stsDurationSeconds: 3600
 audit: { sink: stdout, webhookUrl: null }
@@ -302,10 +357,10 @@ audit: { sink: stdout, webhookUrl: null }
 | Phase | Scope |
 |---|---|
 | **0 – Foundations** | Monorepo, CI, BFF skeleton with the SigV4 signer, OIDC + STS login, sessions, CSRF/CSP, route allow-list framework, docker-compose (AIStor + Keycloak + Redis) for development and e2e |
-| **1 – Browse (read-only)** | Warehouses, namespace tree, table and view detail (all read tabs), Access/ARN helper, 403-aware UX |
-| **2 – Manage** | Create/drop warehouse, namespace, table and view; properties editing; rename; register/unregister; step-up re-auth; audit trail |
-| **3 – Evolve** | Schema, partition and sort evolution wizards, snapshot rollback, branch/tag management, conflict handling, multi-table change sets |
-| **4 – Beyond** | Data preview (read-only, server-side via DuckDB/iceberg-rust using the user's own STS creds, row cap), table maintenance status, optional admin policy viewer, Delta Sharing |
+| **1 – Browse (read-only)** | Overview stats, warehouses/namespaces/tables grids (stats mode, search, sort), namespace tree, table and view detail (all read tabs), **data preview**, maintenance status, Access/ARN helper, 403-aware UX |
+| **2 – Manage** | Create/drop warehouse, namespace, table and view (explicit-purge safeguards); properties and tags editing; rename; register table/view; step-up re-auth; audit trail |
+| **3 – Evolve and operate** | Schema, partition and sort evolution wizards, snapshot rollback, branch/tag management, conflict handling, multi-table change sets, **maintenance configuration** (warehouse and table), **encryption settings** |
+| **4 – Beyond** | Optional admin policy viewer or generator, Delta Sharing management, staged-create workflows |
 
 ---
 
@@ -317,7 +372,9 @@ audit: { sink: stdout, webhookUrl: null }
 | CSRF on destructive ops | SameSite=Strict + synchronizer token + Origin check + step-up |
 | Privilege escalation through a shared UI account | None exists: each call is signed with that user's STS credentials |
 | SSRF / open proxy | Cluster URLs are server config only; typed route allow-list; no passthrough |
-| Vended-credential leak | Delegation header never sent; response redaction; `loadCredentials`/`sign` not routed |
+| Vended-credential leak | `/credentials` not served by AIStor and not routed; delegation header never sent; response redaction |
+| Accidental data purge | `purgeRequested` always sent explicitly; UI defaults to keep-data; purge needs step-up; e2e test checks that a drop without purge keeps the data files |
+| Data exposure through preview | Preview runs with the user's own credentials and needs `s3tables:GetTableData`; the row limit is enforced by the BFF (≤1000); preview responses are never cached by the BFF or the browser (`Cache-Control: no-store`) |
 | Session theft / replay | `__Host-` cookie, short idle timeout, server-side revoke, optional UA/IP binding |
 | Lost updates from concurrent edits | Iceberg `requirements` + a 409 conflict UX |
 | Log leakage | Redaction layer; auth bodies and signatures are never logged |
@@ -326,17 +383,16 @@ Tests: unit tests (commit builders, encoders, redaction), BFF integration tests 
 
 ---
 
-## 13. Open questions (to confirm against the AIStor API reference)
-1. Exact warehouse endpoints and response shapes (`GET/DELETE /warehouses/{name}`, list pagination, returned fields).
-2. Which Iceberg REST endpoints AIStor implements (register-view, unregister, scan planning, functions, metrics).
-3. SigV4 region value AIStor expects for `s3tables` (whatever the server region is, or a fixed value?).
-4. The full `s3tables:` action list, including view actions (`CreateView`, `GetView`, `DeleteView`, `UpdateView`, `RenameView`?) and namespace actions.
-5. Any AIStor-specific extension endpoints beyond warehouses, such as maintenance/compaction status or metrics.
-6. Namespace separator advertised by `/config`, and nesting-depth limits.
-7. Whether `ListWarehouses` / `ListTables` results are filtered by policy on the server or return `403` in full.
+## 13. Open questions (still to confirm)
+The API reference answered most earlier questions. What's left:
+1. Policy action names for the endpoints the reference doesn't list: views (`CreateView`, `GetView`, `UpdateView`, `DeleteView`, `RenameView`?), `RegisterTable`, multi-table transactions, encryption, tags, maintenance configuration, `ListTableSnapshots` and `GetGlobalStats`. These are probably the same as the operation names. We'll confirm them on the "Controlling Access" page or by testing against a live server.
+2. Request and response bodies for the encryption, tags, maintenance-configuration, `ListTableSnapshots` and `/stats` endpoints. The reference only lists them.
+3. Whether `GET /stats` only counts what the caller is allowed to see, or reports cluster-wide totals. If it's cluster-wide, it could leak information across tenants, so it may need an admin-only setting.
+4. The `namespace-separator` value from `/config`. We'll test against a live server.
+5. Whether a stats-mode `ui_token` is tied to the caller. The BFF keeps it per session regardless.
 
 ## References
-- AIStor Tables API reference: https://docs.min.io/aistor/developers/aistor-tables/aistor-tables-api/
+- AIStor Tables API reference: https://docs.min.io/aistor/developers/aistor-tables/aistor-tables-api/ (PDF snapshot 2026-09-28)
 - Controlling access to AIStor Tables: https://docs.min.io/aistor/administration/aistor-tables/aistor-tables-access/
 - Apache Iceberg REST catalog OpenAPI: https://github.com/apache/iceberg/blob/main/open-api/rest-catalog-open-api.yaml
 - MinIO STS: AssumeRoleWithWebIdentity / AssumeRoleWithLDAPIdentity
