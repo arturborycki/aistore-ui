@@ -1,6 +1,6 @@
 # AIStor Catalog UI — Design
 
-Status: **Draft v0.2** (checked against the AIStor Tables API Reference, 2026-09-28) · Scope: multi-user, secure web UI for the MinIO AIStor Tables (Iceberg REST) catalog.
+Status: **v0.3**. Phase 0 is implemented; see the README. Checked against the AIStor Tables API Reference, 2026-09-28. · Scope: multi-user, secure web UI for the MinIO AIStor Tables (Iceberg REST) catalog.
 
 ---
 
@@ -130,13 +130,11 @@ A browser-only SPA would have to keep SigV4 secrets in JavaScript memory or stor
 ### Tech stack (proposed)
 | Layer | Choice | Reason |
 |---|---|---|
-| Monorepo | pnpm workspaces: `apps/web`, `apps/bff`, `packages/api-types` | Frontend and backend share types |
-| Types | `openapi-typescript` generated from the Iceberg spec, plus hand-written AIStor extensions | Keeps the UI in step with the spec |
-| BFF | Node 22 + **Fastify**, `zod` validation, `@smithy/signature-v4`, `openid-client`, `ioredis` | Mature, fast, first-class SigV4 |
-| Web | **React 19 + Vite + TypeScript**, TanStack Router and Query, shadcn/ui (Radix) + Tailwind, Monaco (read-only JSON/SQL) | Accessible primitives, typed routing, cache and invalidation |
-| Tests | Vitest, Playwright e2e against a real AIStor container, and contract tests against the OpenAPI spec | |
+| Repo layout | `backend/` (Go), `frontend/` (React), `e2e/` (Playwright), `deploy/` | Each part builds on its own; one container ships them together |
+| BFF | **Go** (chi, aws-sdk-go-v2 SigV4 signer, go-oidc, go-redis, Prometheus client). The SPA is embedded in the same binary | One static binary in a distroless image, and the same ecosystem as MinIO |
+| Web | **React 19 + Vite + TypeScript**, React Router 7, TanStack Query, Radix primitives + Tailwind v4, cmdk, Lucide | Accessible primitives, caching and invalidation, a small CSP-friendly bundle |
+| Tests | Go unit and integration tests against a SigV4-verifying AIStor test double and a JWT-signing IdP; Vitest; Playwright against the in-memory AIStor test server | |
 
-(Go for the BFF is a reasonable alternative, since MinIO's own SDK and ecosystem are Go. The design doesn't depend on the language.)
 
 ---
 
@@ -310,7 +308,7 @@ GET    /healthz  /readyz  /metrics (Prometheus, served on a separate port)
 ```
 List responses pass the `X-Minio-Ui-List-Token` and `X-Minio-Ui-Total-Count` headers through unchanged. The `:type` parameter is an enum: `icebergSnapshotManagement|icebergCompaction|icebergUnreferencedFileRemoval`.
 
-Namespaces in BFF URLs are carried as a dot-free, URL-safe encoding of the level array (for example, base64url of a JSON array). This avoids mixing up `.` and `%1F`. The BFF turns it back into the Iceberg `%1F` form.
+Namespaces in BFF URLs use the Iceberg convention: each level is percent-encoded, and levels are joined with `%1F`. The BFF decodes the levels, validates each one (no `/`, `\`, control characters, `.` or `..`, at most 255 bytes, at most 10 levels) and re-encodes them for the upstream path, so no path separator can be injected.
 
 ---
 
@@ -356,7 +354,7 @@ audit: { sink: stdout, webhookUrl: null }
 
 | Phase | Scope |
 |---|---|
-| **0 – Foundations** | Monorepo, CI, BFF skeleton with the SigV4 signer, OIDC + STS login, sessions, CSRF/CSP, route allow-list framework, docker-compose (AIStor + Keycloak + Redis) for development and e2e |
+| **0 – Foundations** ✅ | Go backend with the SigV4 signer. OIDC, LDAP and access-key sign-in through STS; encrypted sessions; CSRF and CSP (with a nonce for runtime styles); step-up. The **complete** route allow-list with validation and redaction; audit; metrics. The UI shell, overview, warehouses and namespaces. Container, Compose, Kubernetes, CI |
 | **1 – Browse (read-only)** | Overview stats, warehouses/namespaces/tables grids (stats mode, search, sort), namespace tree, table and view detail (all read tabs), **data preview**, maintenance status, Access/ARN helper, 403-aware UX |
 | **2 – Manage** | Create/drop warehouse, namespace, table and view (explicit-purge safeguards); properties and tags editing; rename; register table/view; step-up re-auth; audit trail |
 | **3 – Evolve and operate** | Schema, partition and sort evolution wizards, snapshot rollback, branch/tag management, conflict handling, multi-table change sets, **maintenance configuration** (warehouse and table), **encryption settings** |

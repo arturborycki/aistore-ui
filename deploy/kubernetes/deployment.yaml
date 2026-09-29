@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aistor-catalog-ui
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+  template:
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile: { type: RuntimeDefault }
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: { app.kubernetes.io/name: aistor-catalog-ui }
+      containers:
+        - name: ui
+          image: aistor-catalog-ui
+          args: ["-config", "/etc/aistor-ui/config.yaml"]
+          ports:
+            - { name: http, containerPort: 8080 }
+            - { name: metrics, containerPort: 9090 }
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom: { secretKeyRef: { name: aistor-catalog-ui, key: redis-password } }
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: config, mountPath: /etc/aistor-ui/config.yaml, subPath: config.yaml, readOnly: true }
+            - { name: secrets, mountPath: /etc/aistor-ui/secrets, readOnly: true }
+            - { name: ca, mountPath: /etc/aistor-ui/ca, readOnly: true }
+      volumes:
+        - name: config
+          configMap: { name: aistor-catalog-ui }
+        - name: secrets
+          secret:
+            secretName: aistor-catalog-ui
+            items:
+              - { key: session-key, path: session-key }
+              - { key: oidc-client-secret, path: oidc-client-secret }
+        - name: ca
+          configMap: { name: aistor-ca, optional: true }

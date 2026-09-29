@@ -1,0 +1,22 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CatalogReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "s3tables:ListWarehouses",
+        "s3tables:GetWarehouse",
+        "s3tables:ListNamespaces",
+        "s3tables:GetNamespace",
+        "s3tables:ListTables",
+        "s3tables:GetTable",
+        "s3tables:GetTableData",
+        "s3tables:GetTableMaintenanceJobStatus"
+      ],
+      "Resource": [
+        "arn:aws:s3tables:::bucket/*"
+      ]
+    }
+  ]
+}

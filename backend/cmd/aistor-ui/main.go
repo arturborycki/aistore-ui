@@ -33,9 +33,22 @@ func run() error {
 	cfgPath := flag.String("config", envOr("AISTOR_UI_CONFIG", "/etc/aistor-ui/config.yaml"), "path to the configuration file")
 	check := flag.Bool("check-config", false, "validate the configuration and exit")
 	showVersion := flag.Bool("version", false, "print the version and exit")
+	healthcheck := flag.String("healthcheck", "", "probe the given URL (e.g. http://127.0.0.1:8080/healthz) and exit 0 if healthy; for container health checks")
 	flag.Parse()
 	if *showVersion {
 		fmt.Println(version)
+		return nil
+	}
+	if *healthcheck != "" {
+		c := &http.Client{Timeout: 3 * time.Second}
+		resp, err := c.Get(*healthcheck)
+		if err != nil {
+			return err
+		}
+		resp.Body.Close()
+		if resp.StatusCode >= 300 {
+			return fmt.Errorf("unhealthy: HTTP %d", resp.StatusCode)
+		}
 		return nil
 	}
 

@@ -1,0 +1,118 @@
+# Full local stack: AIStor + Keycloak (SSO) + Redis + AIStor Catalog UI.
+#
+#   cp .env.example .env   # then fill in AISTOR_LICENSE; or run `make compose-env` from the repo root
+#   docker compose up -d --build
+#   open http://localhost:8080   (alice / bob — passwords from .env)
+#
+# Keycloak is published as http://keycloak.localhost:8081. Browsers resolve
+# *.localhost to 127.0.0.1, and inside the compose network the same name is a
+# DNS alias of the keycloak container, so every party sees one issuer URL.
+name: aistor-catalog
+
+services:
+  aistor:
+    image: ${AISTOR_IMAGE:-quay.io/minio/aistor/minio:latest}
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_LICENSE: ${AISTOR_LICENSE:?set AISTOR_LICENSE in .env}
+      MINIO_ROOT_USER: ${AISTOR_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${AISTOR_ROOT_PASSWORD}
+      MINIO_REGION: us-east-1
+      # Users sign in through Keycloak; their "groups" claim names AIStor policies.
+      MINIO_IDENTITY_OPENID_CONFIG_URL: http://keycloak.localhost:8081/realms/aistor/.well-known/openid-configuration
+      MINIO_IDENTITY_OPENID_CLIENT_ID: aistor-ui
+      MINIO_IDENTITY_OPENID_CLAIM_NAME: groups
+      MINIO_IDENTITY_OPENID_SCOPES: openid,profile,email
+    volumes:
+      - aistor-data:/data
+    ports:
+      - "9000:9000"   # S3 + AIStor Tables API (/_iceberg)
+      - "9001:9001"   # AIStor Console
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # One-shot: create the catalog policies referenced by the Keycloak groups.
+  aistor-init:
+    image: ${AISTOR_MC_IMAGE:-quay.io/minio/aistor/mc:latest}
+    depends_on:
+      - aistor
+    environment:
+      MC_HOST_local: http://${AISTOR_ROOT_USER}:${AISTOR_ROOT_PASSWORD}@aistor:9000
+    volumes:
+      - ./policies:/policies:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        until mc ready local >/dev/null 2>&1; do echo "waiting for AIStor"; sleep 2; done
+        mc admin policy create local catalog-admin /policies/catalog-admin.json
+        mc admin policy create local catalog-readonly /policies/catalog-readonly.json
+        echo "AIStor catalog policies installed"
+    restart: "no"
+
+  keycloak:
+    image: ${KEYCLOAK_IMAGE:-quay.io/keycloak/keycloak:26.4}
+    command: ["start-dev", "--import-realm", "--http-port=8081", "--health-enabled=true"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_HOSTNAME: http://keycloak.localhost:8081
+      KC_UI_CLIENT_SECRET: ${AISTOR_UI_OIDC_CLIENT_SECRET}
+      KC_ALICE_PASSWORD: ${DEMO_ALICE_PASSWORD}
+      KC_BOB_PASSWORD: ${DEMO_BOB_PASSWORD}
+    volumes:
+      - ./keycloak/realm-aistor.json:/opt/keycloak/data/import/realm-aistor.json:ro
+    ports:
+      - "8081:8081"
+    networks:
+      default:
+        aliases: [keycloak.localhost]
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q UP <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  redis:
+    image: ${REDIS_IMAGE:-redis:7-alpine}
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" --no-auth-warning ping | grep PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    restart: unless-stopped
+
+  catalog-ui:
+    build:
+      context: ../..
+      args:
+        VERSION: ${AISTOR_UI_VERSION:-dev}
+    image: ${AISTOR_UI_IMAGE:-aistor-catalog-ui:local}
+    environment:
+      AISTOR_UI_SESSION_KEY: ${AISTOR_UI_SESSION_KEY}
+      AISTOR_UI_OIDC_CLIENT_SECRET: ${AISTOR_UI_OIDC_CLIENT_SECRET}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    volumes:
+      - ./config.yaml:/etc/aistor-ui/config.yaml:ro
+    ports:
+      - "8080:8080"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      redis:
+        condition: service_healthy
+      aistor-init:
+        condition: service_completed_successfully
+      keycloak:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  aistor-data:

@@ -1,0 +1,12 @@
+.git
+**/node_modules
+frontend/dist
+backend/bin
+backend/internal/web/dist/assets
+backend/internal/web/dist/index.html
+backend/internal/web/dist/favicon.svg
+e2e
+deploy
+docs
+*.md
+!README.md

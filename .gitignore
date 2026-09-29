@@ -9,3 +9,4 @@ deploy/secrets/
 coverage/
 test-results/
 playwright-report/
+*.tsbuildinfo

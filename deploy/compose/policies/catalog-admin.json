@@ -1,0 +1,11 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CatalogAdmin",
+      "Effect": "Allow",
+      "Action": ["s3tables:*"],
+      "Resource": ["arn:aws:s3tables:::bucket/*"]
+    }
+  ]
+}
