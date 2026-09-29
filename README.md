@@ -12,12 +12,28 @@ See [`docs/DESIGN.md`](docs/DESIGN.md) for the architecture and threat model, an
 
 ## Status
 
-**Phase 0 (foundations) is complete.** It covers:
-- sign-in, sessions and step-up;
-- the full allow-list of AIStor Tables routes in the backend, including tables, views, maintenance, encryption, tags, preview and transactions;
-- in the UI: overview dashboard, warehouses (create and delete), namespaces (nested, create and delete, properties editor), an access/ARN policy helper, and the activity log.
+**Phases 0 and 1 are complete.**
 
-Next is **phase 1**: table and view detail pages (schema, snapshots, preview, maintenance) on top of the backend routes that already exist. See the delivery plan in the design doc.
+- **Sign-in and security:** SSO (OIDC), LDAP and access-key sign-in, encrypted sessions, and step-up re-authentication for destructive actions. The backend forwards a fixed list covering every AIStor Tables endpoint.
+- **Overview and warehouses:** an overview dashboard, and warehouse create/delete.
+- **Namespaces:** nested namespaces with create/delete and a properties editor. Each namespace page has Tables, Views and Child-namespaces tabs.
+- **Table pages:**
+  - overview and stats;
+  - data **preview** with CSV export;
+  - **schema** tree with version history and diff;
+  - partitioning and sort orders;
+  - a **snapshot** timeline with a records chart, branches and tags;
+  - **maintenance** status and settings;
+  - a **properties** editor (committed atomically, guarded by the table UUID);
+  - encryption and tags;
+  - raw metadata (with storage credentials removed);
+  - an access/ARN helper.
+  - Actions: rename/move, and drop (keeps data files by default; purging requires step-up).
+- **View pages:** SQL definition for each dialect, version history with an SQL diff, schema, details, and rename/drop.
+- **Everywhere:** an explorer tree covering tables and views, a command palette, the activity log, and light/dark themes.
+- **64-bit safety:** Iceberg snapshot IDs and int64 preview values are parsed and sent without precision loss.
+
+**Next is phases 2 and 3:** create table (schema builder), register table and view, schema/partition evolution wizards, snapshot rollback, branch/tag management, editing maintenance, encryption and tags, and multi-table change sets.
 
 ## Quick start (no AIStor needed)
 

@@ -1,3 +1,5 @@
+import { parseJSON, stringifyJSON } from './json'
+
 /**
  * HTTP client for the backend-for-frontend.
  *
@@ -103,7 +105,7 @@ export async function request<T>(method: string, path: string, opts: RequestOpti
     resp = await fetch(path + buildQuery(opts.query), {
       method,
       headers,
-      body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+      body: opts.body === undefined ? undefined : stringifyJSON(opts.body),
       credentials: 'same-origin',
       cache: 'no-store',
       redirect: 'error',
@@ -116,7 +118,7 @@ export async function request<T>(method: string, path: string, opts: RequestOpti
 
   if (resp.ok) {
     const text = resp.status === 204 ? '' : await resp.text()
-    return { data: (text ? JSON.parse(text) : undefined) as T, headers: resp.headers, status: resp.status }
+    return { data: (text ? parseJSON<T>(text) : undefined) as T, headers: resp.headers, status: resp.status }
   }
 
   let type = 'HttpError'

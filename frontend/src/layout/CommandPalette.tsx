@@ -36,15 +36,21 @@ export function CommandPalette({ cluster, open, onOpenChange }: { cluster: strin
   const { setTheme } = useTheme()
 
   // Search everything the explorer has already loaded (no extra catalog calls).
-  const { warehouses, namespaces } = useMemo(() => {
-    if (!open) return { warehouses: [] as string[], namespaces: [] as { wh: string; ns: Namespace }[] }
+  const { warehouses, namespaces, leaves } = useMemo(() => {
+    const leaves: { kind: 'table' | 'view'; wh: string; ns: Namespace; name: string }[] = []
+    if (!open) return { warehouses: [] as string[], namespaces: [] as { wh: string; ns: Namespace }[], leaves }
     const whs = qc.getQueryData<string[]>(['tree', cluster, 'warehouses']) ?? []
     const nss: { wh: string; ns: Namespace }[] = []
     for (const [key, data] of qc.getQueriesData<Namespace[]>({ queryKey: ['tree', cluster, 'ns'] })) {
       const wh = key[3] as string
       for (const ns of data ?? []) nss.push({ wh, ns })
     }
-    return { warehouses: whs, namespaces: nss }
+    for (const kind of ['tables', 'views'] as const) {
+      for (const [key, data] of qc.getQueriesData<{ name: string; namespace: string[] }[]>({ queryKey: ['tree', cluster, kind] })) {
+        for (const id of data ?? []) leaves.push({ kind: kind === 'tables' ? 'table' : 'view', wh: key[3] as string, ns: id.namespace, name: id.name })
+      }
+    }
+    return { warehouses: whs, namespaces: nss, leaves }
   }, [open, qc, cluster])
 
   const go = (to: string) => {
@@ -96,6 +102,24 @@ export function CommandPalette({ cluster, open, onOpenChange }: { cluster: strin
                       <span className="font-mono text-[12.5px]">
                         <span className="text-subtle">{wh}.</span>
                         {ns.join('.')}
+                      </span>
+                    </Command.Item>
+                  ))}
+                </Command.Group>
+              )}
+              {leaves.length > 0 && (
+                <Command.Group heading="Tables & views" className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wide [&_[cmdk-group-heading]]:text-subtle">
+                  {leaves.map((l) => (
+                    <Command.Item
+                      key={`${l.kind}:${l.wh}/${l.ns.join('\u001f')}/${l.name}`}
+                      value={`${l.kind} ${l.wh}.${l.ns.join('.')}.${l.name}`}
+                      className={itemCls}
+                      onSelect={() => go(l.kind === 'table' ? paths.table(cluster, l.wh, l.ns, l.name) : paths.view(cluster, l.wh, l.ns, l.name))}
+                    >
+                      <EntityIcon kind={l.kind} />
+                      <span className="font-mono text-[12.5px]">
+                        <span className="text-subtle">{l.wh}.{l.ns.join('.')}.</span>
+                        {l.name}
                       </span>
                     </Command.Item>
                   ))}

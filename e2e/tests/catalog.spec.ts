@@ -57,6 +57,7 @@ test('create, browse, edit and delete with step-up', async ({ page }) => {
   await page.getByLabel('Name', { exact: true }).fill('finance')
   await page.getByRole('button', { name: 'Create namespace' }).click()
   await expect(page).toHaveURL(/\/ns\/finance$/)
+  await page.getByRole('tab', { name: 'Child namespaces' }).click()
   await page.getByRole('button', { name: 'New child namespace' }).click()
   await page.getByLabel('Name', { exact: true }).fill('q3')
   await page.getByRole('button', { name: 'Create namespace' }).click()

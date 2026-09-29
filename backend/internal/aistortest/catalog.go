@@ -35,6 +35,8 @@ type nsState struct {
 	tables     int
 	records    int64
 	size       int64
+	tbl        map[string]*tableState
+	views      map[string]*viewState
 }
 
 func NewCatalog() *Catalog { return &Catalog{warehouses: map[string]*whState{}} }
@@ -56,7 +58,7 @@ func (c *Catalog) Seed(wh string, props map[string]string, namespaces map[string
 			}
 		}
 		ns := w.namespaces[strings.Join(levels, "\x1f")]
-		ns.tables, ns.records, ns.size = int(st[0]), st[1], st[2]
+		ns.populate(wh, int(st[0]), st[1], st[2])
 		ns.properties["owner"] = levels[0] + "-team"
 	}
 	c.warehouses[wh] = w
@@ -261,6 +263,27 @@ func (c *Catalog) Handle(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, 200, map[string]any{"name": wh.name, "bucket": wh.name, "uuid": wh.uuid, "created-at": wh.created.UTC().Format(time.RFC3339), "properties": wh.properties})
+	case len(segs) == 3 && segs[0] == "warehouses" && (segs[2] == "encryption" || segs[2] == "tags") && r.Method == "GET":
+		if _, ok := c.warehouses[segs[1]]; !ok {
+			iceErr(w, 404, "NoSuchWarehouseException", "warehouse does not exist: "+segs[1])
+			return
+		}
+		if segs[2] == "encryption" {
+			writeJSON(w, 200, map[string]any{"encryptionConfiguration": map[string]any{"sseAlgorithm": "AES256"}})
+		} else {
+			writeJSON(w, 200, map[string]any{"tags": c.warehouses[segs[1]].properties})
+		}
+	case len(segs) == 2 && segs[1] == "maintenance" && r.Method == "GET":
+		writeJSON(w, 200, map[string]any{"configuration": map[string]any{
+			"icebergUnreferencedFileRemoval": map[string]any{"status": "enabled", "settings": map[string]any{"icebergUnreferencedFileRemoval": map[string]any{"unreferencedDays": 3, "nonCurrentDays": 10}}},
+		}})
+	case len(segs) == 3 && (segs[1] == "tables" || segs[1] == "views") && segs[2] == "rename" && r.Method == "POST":
+		wh, ok := c.warehouses[segs[0]]
+		if !ok {
+			iceErr(w, 404, "NoSuchWarehouseException", "warehouse does not exist: "+segs[0])
+			return
+		}
+		c.rename(w, r, wh, strings.TrimSuffix(segs[1], "s"))
 	case len(segs) >= 2 && segs[1] == "namespaces":
 		wh, ok := c.warehouses[segs[0]]
 		if !ok {
@@ -347,7 +370,7 @@ func (c *Catalog) handleNamespaces(w http.ResponseWriter, r *http.Request, wh *w
 				return
 			}
 		}
-		if ns.tables > 0 {
+		if ns.tables > 0 || len(ns.views) > 0 {
 			iceErr(w, 409, "NamespaceNotEmptyException", "namespace is not empty: "+strings.Join(ns.levels, "."))
 			return
 		}
@@ -373,8 +396,10 @@ func (c *Catalog) handleNamespaces(w http.ResponseWriter, r *http.Request, wh *w
 			}
 		}
 		writeJSON(w, 200, map[string]any{"updated": updated, "removed": removed, "missing": missing})
-	case len(rest) == 2 && (rest[1] == "tables" || rest[1] == "views") && r.Method == "GET":
-		writeJSON(w, 200, map[string]any{"identifiers": []any{}})
+	case len(rest) >= 2 && rest[1] == "tables":
+		c.handleTables(w, r, wh, ns, rest[2:], q)
+	case len(rest) >= 2 && rest[1] == "views":
+		c.handleViews(w, r, ns, rest[2:])
 	default:
 		iceErr(w, 404, "NotFound", "no such route in test catalog")
 	}

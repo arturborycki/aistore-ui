@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams, useSearchParams } from 'react-router'
-import { Ellipsis, FolderTree, KeyRound, SlidersHorizontal, Trash2 } from 'lucide-react'
+import { Ellipsis, Eye, FolderTree, KeyRound, SlidersHorizontal, Table2, Trash2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { CopyText } from '@/components/ui/copy-button'
@@ -20,6 +20,7 @@ import { useCluster } from '@/layout/useCluster'
 import { AccessPanel } from '@/features/warehouses/AccessPanel'
 import { DeleteNamespaceDialog } from './NamespaceDialogs'
 import { NamespacesTable } from './NamespacesTable'
+import { TablesList, ViewsList } from '@/features/tables/TablesList'
 import { PropertiesEditor } from './PropertiesEditor'
 
 export function NamespacePage() {
@@ -28,7 +29,7 @@ export function NamespacePage() {
   const wh = params.wh!
   const ns = decodeNamespaceParam(params.ns)
   const [search, setSearch] = useSearchParams()
-  const tab = search.get('tab') ?? 'namespaces'
+  const tab = search.get('tab') ?? 'tables'
   const navigate = useNavigate()
   const qc = useQueryClient()
   const toast = useToast()
@@ -84,6 +85,12 @@ export function NamespacePage() {
       ) : (
         <Tabs value={tab} onValueChange={(v) => setSearch({ tab: v }, { replace: true })}>
           <TabsList>
+            <TabsTrigger value="tables" icon={<Table2 />}>
+              Tables
+            </TabsTrigger>
+            <TabsTrigger value="views" icon={<Eye />}>
+              Views
+            </TabsTrigger>
             <TabsTrigger value="namespaces" icon={<FolderTree />}>
               Child namespaces
             </TabsTrigger>
@@ -94,6 +101,12 @@ export function NamespacePage() {
               Access
             </TabsTrigger>
           </TabsList>
+          <TabsContent value="tables">
+            <TablesList cluster={cluster} wh={wh} ns={ns} />
+          </TabsContent>
+          <TabsContent value="views">
+            <ViewsList cluster={cluster} wh={wh} ns={ns} />
+          </TabsContent>
           <TabsContent value="namespaces">
             <NamespacesTable cluster={cluster} warehouse={wh} parent={ns} />
           </TabsContent>

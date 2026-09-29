@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useParams } from 'react-router'
 import { ChevronRight, LoaderCircle, LockKeyhole, RefreshCw, Search, TriangleAlert } from 'lucide-react'
-import { listAllNamespaces, listAllWarehouses } from '@/lib/catalog'
+import { listAllNamespaces, listAllTables, listAllViews, listAllWarehouses } from '@/lib/catalog'
 import { ApiError } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { decodeNamespaceParam, encodeNamespace, sameNamespace, type Namespace } from '@/lib/namespace'
@@ -16,6 +16,37 @@ const INDENT = 14
 export const treeKeys = {
   warehouses: (cluster: string) => ['tree', cluster, 'warehouses'] as const,
   namespaces: (cluster: string, wh: string, parent: Namespace) => ['tree', cluster, 'ns', wh, parent.join('\u001f')] as const,
+  tables: (cluster: string, wh: string, ns: Namespace) => ['tree', cluster, 'tables', wh, ns.join('\u001f')] as const,
+  views: (cluster: string, wh: string, ns: Namespace) => ['tree', cluster, 'views', wh, ns.join('\u001f')] as const,
+}
+
+/** Tables and views of an expanded namespace (leaf rows). */
+function LeafNodes({ cluster, wh, ns, depth }: { cluster: string; wh: string; ns: Namespace; depth: number }) {
+  const params = useParams()
+  const activeNs = decodeNamespaceParam(params.ns)
+  const here = params.wh === wh && sameNamespace(activeNs, ns)
+  const tables = useQuery({ queryKey: treeKeys.tables(cluster, wh, ns), queryFn: () => listAllTables(cluster, wh, ns), staleTime: 30_000 })
+  const views = useQuery({ queryKey: treeKeys.views(cluster, wh, ns), queryFn: () => listAllViews(cluster, wh, ns), staleTime: 30_000 })
+  const row = (kind: 'table' | 'view', name: string) => (
+    <Row
+      key={`${kind}:${name}`}
+      depth={depth}
+      to={kind === 'table' ? paths.table(cluster, wh, ns, name) : paths.view(cluster, wh, ns, name)}
+      active={here && (kind === 'table' ? params.table === name : params.view === name)}
+      expandable={false}
+      open={false}
+      onToggle={() => {}}
+      icon={<EntityIcon kind={kind} />}
+      label={name}
+    />
+  )
+  return (
+    <>
+      {tables.isError && <div style={{ paddingLeft: depth * INDENT + 24 }}>{nodeError(tables.error)}</div>}
+      {tables.data?.map((t) => row('table', t.name))}
+      {views.data?.map((v) => row('view', v.name))}
+    </>
+  )
 }
 
 function useExpanded(cluster: string) {
@@ -127,6 +158,8 @@ function NamespaceNodes({
   activeWh?: string
   activeNs: Namespace
 }) {
+  const params = useParams()
+  const leafActive = !!(params.table || params.view)
   const q = useQuery({
     queryKey: treeKeys.namespaces(cluster, wh, parent),
     queryFn: () => listAllNamespaces(cluster, wh, parent),
@@ -147,7 +180,7 @@ function NamespaceNodes({
       {items.map((ns) => {
         const id = `${wh}/${encodeNamespace(ns)}`
         const open = expanded.has(id)
-        const active = activeWh === wh && sameNamespace(ns, activeNs)
+        const active = activeWh === wh && sameNamespace(ns, activeNs) && !leafActive
         return (
           <div key={id}>
             <Row
@@ -161,7 +194,10 @@ function NamespaceNodes({
               label={ns[ns.length - 1]}
             />
             {open && (
-              <NamespaceNodes cluster={cluster} wh={wh} parent={ns} depth={depth + 1} expanded={expanded} toggle={toggle} activeWh={activeWh} activeNs={activeNs} />
+              <>
+                <NamespaceNodes cluster={cluster} wh={wh} parent={ns} depth={depth + 1} expanded={expanded} toggle={toggle} activeWh={activeWh} activeNs={activeNs} />
+                <LeafNodes cluster={cluster} wh={wh} ns={ns} depth={depth + 1} />
+              </>
             )}
           </div>
         )
@@ -183,9 +219,10 @@ export function ExplorerTree({ cluster }: { cluster: string }) {
   useEffect(() => {
     if (!activeWh) return
     toggle(activeWh, true)
-    for (let i = 1; i < activeNs.length; i++) toggle(`${activeWh}/${encodeNamespace(activeNs.slice(0, i))}`, true)
+    const upto = params.table || params.view ? activeNs.length : activeNs.length - 1
+    for (let i = 1; i <= upto; i++) toggle(`${activeWh}/${encodeNamespace(activeNs.slice(0, i))}`, true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeWh, nsKey])
+  }, [activeWh, nsKey, params.table, params.view])
 
   const warehouses = useMemo(() => {
     const f = filter.trim().toLowerCase()

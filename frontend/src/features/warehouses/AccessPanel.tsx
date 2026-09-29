@@ -3,7 +3,7 @@ import { Info } from 'lucide-react'
 import { Card, CardHeader } from '@/components/ui/layout'
 import { CopyButton, CopyText } from '@/components/ui/copy-button'
 import { cn } from '@/lib/cn'
-import { arn } from '@/lib/catalog'
+import { arn, resourceArn } from '@/lib/catalog'
 import type { Namespace } from '@/lib/namespace'
 
 const READ = ['s3tables:GetWarehouse', 's3tables:ListNamespaces', 's3tables:GetNamespace', 's3tables:ListTables', 's3tables:GetTable', 's3tables:GetTableData', 's3tables:GetTableMaintenanceJobStatus']
@@ -17,9 +17,20 @@ const WRITE = [
   's3tables:DeleteTable',
 ]
 
-function policy(wh: string, actions: string[], ns?: Namespace) {
-  const statement: Record<string, unknown> = { Effect: 'Allow', Action: actions, Resource: [arn.warehouse(wh), arn.tables(wh), arn.views(wh)] }
-  if (ns?.length) {
+const TABLE_READ = ['s3tables:GetTable', 's3tables:GetTableData', 's3tables:GetTableMaintenanceJobStatus']
+const TABLE_WRITE = ['s3tables:UpdateTable', 's3tables:RenameTable', 's3tables:DeleteTable']
+const VIEW_READ = ['s3tables:GetView']
+const VIEW_WRITE = ['s3tables:UpdateView', 's3tables:RenameView', 's3tables:DeleteView']
+
+export interface AccessResource {
+  kind: 'table' | 'view'
+  uuid: string
+}
+
+function policy(wh: string, actions: string[], ns?: Namespace, res?: AccessResource) {
+  const resources = res ? [res.kind === 'table' ? resourceArn.table(wh, res.uuid) : resourceArn.view(wh, res.uuid)] : [arn.warehouse(wh), arn.tables(wh), arn.views(wh)]
+  const statement: Record<string, unknown> = { Effect: 'Allow', Action: actions, Resource: resources }
+  if (ns?.length && !res) {
     // Namespace-level scoping is expressed with condition keys; namespace
     // operations themselves are authorised on the warehouse ARN.
     statement.Condition = { StringEquals: { 's3tables:namespace': ns.join('.') } }
@@ -32,19 +43,27 @@ function policy(wh: string, actions: string[], ns?: Namespace) {
  * itself grants nothing: every request is authorised by AIStor for the
  * signed-in user.
  */
-export function AccessPanel({ warehouse, namespace }: { warehouse: string; namespace?: Namespace }) {
+export function AccessPanel({ warehouse, namespace, resource }: { warehouse: string; namespace?: Namespace; resource?: AccessResource }) {
   const [mode, setMode] = useState<'read' | 'write'>('read')
-  const text = policy(warehouse, mode === 'read' ? READ : [...READ, ...WRITE], namespace)
+  const read = resource ? (resource.kind === 'table' ? TABLE_READ : VIEW_READ) : READ
+  const write = resource ? (resource.kind === 'table' ? TABLE_WRITE : VIEW_WRITE) : WRITE
+  const text = policy(warehouse, mode === 'read' ? read : [...read, ...write], namespace, resource)
+  const arns: [string, string][] = resource
+    ? [
+        [`This ${resource.kind}`, resource.kind === 'table' ? resourceArn.table(warehouse, resource.uuid) : resourceArn.view(warehouse, resource.uuid)],
+        ['Warehouse, namespaces', arn.warehouse(warehouse)],
+      ]
+    : [
+        ['Warehouse, namespaces', arn.warehouse(warehouse)],
+        ['All tables', arn.tables(warehouse)],
+        ['All views', arn.views(warehouse)],
+      ]
   return (
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
       <Card>
         <CardHeader title="Resource ARNs" description="Policies are evaluated against these resources." />
         <dl className="flex flex-col gap-3 p-4 text-[13px]">
-          {[
-            ['Warehouse, namespaces', arn.warehouse(warehouse)],
-            ['All tables', arn.tables(warehouse)],
-            ['All views', arn.views(warehouse)],
-          ].map(([label, value]) => (
+          {arns.map(([label, value]) => (
             <div key={label}>
               <dt className="text-[12px] text-muted">{label}</dt>
               <dd>
@@ -63,7 +82,13 @@ export function AccessPanel({ warehouse, namespace }: { warehouse: string; names
       <Card>
         <CardHeader
           title="Example policy"
-          description={namespace?.length ? 'Scoped to this namespace with the s3tables:namespace condition key.' : 'Grants access to this warehouse only.'}
+          description={
+            resource
+              ? `Grants access to this ${resource.kind} only, by its UUID.`
+              : namespace?.length
+                ? 'Scoped to this namespace with the s3tables:namespace condition key.'
+                : 'Grants access to this warehouse only.'
+          }
           actions={
             <div className="flex items-center gap-1">
               <div className="grid grid-cols-2 gap-0.5 rounded-[var(--radius-control)] bg-surface p-0.5 text-[12px]" role="tablist">

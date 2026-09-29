@@ -60,5 +60,6 @@ export function humanize(key: string): string {
     .replace(/[_-]+/g, ' ')
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
     .trim()
-  return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase()
+  const words = s.split(/\s+/).map((w, i) => (/^[A-Z0-9]{2,}$/.test(w) ? w : i === 0 ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : w.toLowerCase()))
+  return words.join(' ')
 }

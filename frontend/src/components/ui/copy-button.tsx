@@ -31,7 +31,7 @@ export function CopyButton({ value, label = 'Copy', className }: { value: string
 /** Monospace value with copy-on-hover. */
 export function CopyText({ value, className }: { value: string; className?: string }) {
   return (
-    <span className={cn('group inline-flex min-w-0 items-center gap-1', className)}>
+    <span className={cn('group inline-flex min-w-0 max-w-full items-center gap-1', className)}>
       <span className="truncate font-mono text-[12px]">{value}</span>
       <CopyButton value={value} className="opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100" />
     </span>

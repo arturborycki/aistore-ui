@@ -4,6 +4,7 @@
  */
 import { api, type Query } from './api'
 import { encodeNamespace, type Namespace } from './namespace'
+import type { LoadTableResult, LoadViewResult, TableIdentifier } from './iceberg'
 
 const c = (cluster: string) => `/api/c/${encodeURIComponent(cluster)}`
 const w = (cluster: string, wh: string) => `${c(cluster)}/wh/${encodeURIComponent(wh)}`
@@ -179,4 +180,117 @@ export const arn = {
   warehouse: (wh: string) => `arn:aws:s3tables:::bucket/${wh}`,
   tables: (wh: string) => `arn:aws:s3tables:::bucket/${wh}/table/*`,
   views: (wh: string) => `arn:aws:s3tables:::bucket/${wh}/view/*`,
+}
+
+// ---------------------------------------------------------------- tables
+
+
+const t = (cluster: string, wh: string, ns: Namespace, table: string) => `${n(cluster, wh, ns)}/t/${encodeURIComponent(table)}`
+const v = (cluster: string, wh: string, ns: Namespace, view: string) => `${n(cluster, wh, ns)}/v/${encodeURIComponent(view)}`
+
+export async function listTables(cluster: string, wh: string, ns: Namespace, p: ListParams): Promise<StatsPage<TableIdentifier>> {
+  const r = await api.get<{ identifiers?: TableIdentifier[]; stats?: Record<string, EntryStats> }>(`${n(cluster, wh, ns)}/tables`, {
+    query: statsQuery(p),
+  })
+  return { items: r.data?.identifiers ?? [], stats: r.data?.stats ?? {}, ...pageMeta(r.headers) }
+}
+
+async function listAllIdentifiers(path: string): Promise<TableIdentifier[]> {
+  const out: TableIdentifier[] = []
+  let pageToken: string | undefined
+  for (let i = 0; i < 50; i++) {
+    const r = await api.get<{ identifiers?: TableIdentifier[]; 'next-page-token'?: string | null }>(path, { query: { pageSize: 1000, pageToken } })
+    out.push(...(r.data?.identifiers ?? []))
+    pageToken = r.data?.['next-page-token'] ?? undefined
+    if (!pageToken) break
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name))
+}
+
+export const listAllTables = (cluster: string, wh: string, ns: Namespace) => listAllIdentifiers(`${n(cluster, wh, ns)}/tables`)
+export const listAllViews = (cluster: string, wh: string, ns: Namespace) => listAllIdentifiers(`${n(cluster, wh, ns)}/views`)
+
+export async function loadTable(cluster: string, wh: string, ns: Namespace, table: string) {
+  return (await api.get<LoadTableResult>(t(cluster, wh, ns, table), { query: { snapshots: 'all' } })).data
+}
+
+export async function commitTableProperties(
+  cluster: string,
+  wh: string,
+  ns: Namespace,
+  table: string,
+  tableUUID: string,
+  updates: Record<string, string>,
+  removals: string[],
+) {
+  const actions: Record<string, unknown>[] = []
+  if (Object.keys(updates).length) actions.push({ action: 'set-properties', updates })
+  if (removals.length) actions.push({ action: 'remove-properties', removals })
+  return (
+    await api.post<LoadTableResult>(t(cluster, wh, ns, table), {
+      identifier: { namespace: ns, name: table },
+      requirements: [{ type: 'assert-table-uuid', uuid: tableUUID }],
+      updates: actions,
+    })
+  ).data
+}
+
+export async function dropTable(cluster: string, wh: string, ns: Namespace, table: string, purge: boolean) {
+  await api.del(t(cluster, wh, ns, table), { query: { purge } })
+}
+
+export async function renameTable(cluster: string, wh: string, from: TableIdentifier, to: TableIdentifier) {
+  await api.post(`${w(cluster, wh)}/tables/rename`, { source: from, destination: to })
+}
+
+export interface PreviewResult {
+  schema: { name: string; type: string }[]
+  rows: unknown[][]
+  row_count: number
+}
+
+export async function previewTable(cluster: string, wh: string, ns: Namespace, table: string, limit: number) {
+  return (await api.get<PreviewResult>(`${t(cluster, wh, ns, table)}/preview`, { query: { limit } })).data
+}
+
+export type MaintenanceType = 'icebergSnapshotManagement' | 'icebergCompaction' | 'icebergUnreferencedFileRemoval'
+export interface MaintenanceJobStatus {
+  status: 'Successful' | 'Failed' | 'Disabled' | 'Not_Yet_Run' | string
+  lastRunTimestamp?: string
+  failureMessage?: string
+}
+
+export async function getTableMaintenanceStatus(cluster: string, wh: string, ns: Namespace, table: string) {
+  return (await api.get<{ tableARN?: string; status?: Partial<Record<MaintenanceType, MaintenanceJobStatus>> }>(`${t(cluster, wh, ns, table)}/maintenance-job-status`)).data
+}
+
+export async function getTableMaintenanceConfig(cluster: string, wh: string, ns: Namespace, table: string) {
+  return (await api.get<Record<string, unknown>>(`${t(cluster, wh, ns, table)}/maintenance`)).data
+}
+
+export async function getTableEncryption(cluster: string, wh: string, ns: Namespace, table: string) {
+  return (await api.get<Record<string, unknown>>(`${t(cluster, wh, ns, table)}/encryption`)).data
+}
+
+export async function getTableTags(cluster: string, wh: string, ns: Namespace, table: string) {
+  return (await api.get<Record<string, unknown>>(`${t(cluster, wh, ns, table)}/tags`)).data
+}
+
+// ---------------------------------------------------------------- views
+
+export async function loadView(cluster: string, wh: string, ns: Namespace, view: string) {
+  return (await api.get<LoadViewResult>(v(cluster, wh, ns, view))).data
+}
+
+export async function dropView(cluster: string, wh: string, ns: Namespace, view: string) {
+  await api.del(v(cluster, wh, ns, view))
+}
+
+export async function renameView(cluster: string, wh: string, from: TableIdentifier, to: TableIdentifier) {
+  await api.post(`${w(cluster, wh)}/views/rename`, { source: from, destination: to })
+}
+
+export const resourceArn = {
+  table: (wh: string, uuid: string) => `arn:aws:s3tables:::bucket/${wh}/table/${uuid}`,
+  view: (wh: string, uuid: string) => `arn:aws:s3tables:::bucket/${wh}/view/${uuid}`,
 }

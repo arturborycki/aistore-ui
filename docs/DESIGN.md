@@ -355,7 +355,7 @@ audit: { sink: stdout, webhookUrl: null }
 | Phase | Scope |
 |---|---|
 | **0 – Foundations** ✅ | Go backend with the SigV4 signer. OIDC, LDAP and access-key sign-in through STS; encrypted sessions; CSRF and CSP (with a nonce for runtime styles); step-up. The **complete** route allow-list with validation and redaction; audit; metrics. The UI shell, overview, warehouses and namespaces. Container, Compose, Kubernetes, CI |
-| **1 – Browse (read-only)** | Overview stats, warehouses/namespaces/tables grids (stats mode, search, sort), namespace tree, table and view detail (all read tabs), **data preview**, maintenance status, Access/ARN helper, 403-aware UX |
+| **1 – Browse** ✅ | Overview stats, warehouses/namespaces/tables grids (stats mode, search, sort), namespace tree, table and view detail (all read tabs), **data preview**, maintenance status, Access/ARN helper, 403-aware UX |
 | **2 – Manage** | Create/drop warehouse, namespace, table and view (explicit-purge safeguards); properties and tags editing; rename; register table/view; step-up re-auth; audit trail |
 | **3 – Evolve and operate** | Schema, partition and sort evolution wizards, snapshot rollback, branch/tag management, conflict handling, multi-table change sets, **maintenance configuration** (warehouse and table), **encryption settings** |
 | **4 – Beyond** | Optional admin policy viewer or generator, Delta Sharing management, staged-create workflows |

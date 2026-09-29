@@ -6,7 +6,7 @@ import { EntityIcon } from '@/components/ui/entity-icon'
 import { paths } from './paths'
 
 export function Breadcrumbs({ cluster }: { cluster: string }) {
-  const { wh, ns } = useParams()
+  const { wh, ns, table, view } = useParams()
   const location = useLocation()
   const levels = decodeNamespaceParam(ns)
   const crumbs: { to: string; label: ReactNode }[] = []
@@ -36,6 +36,19 @@ export function Breadcrumbs({ cluster }: { cluster: string }) {
         ),
       }),
     )
+    if (table || view) {
+      const kind = table ? 'table' : 'view'
+      const name = (table ?? view)!
+      crumbs.push({
+        to: table ? paths.table(cluster, wh, levels, name) : paths.view(cluster, wh, levels, name),
+        label: (
+          <span className="flex items-center gap-1.5">
+            <EntityIcon kind={kind} className="size-3.5" />
+            {name}
+          </span>
+        ),
+      })
+    }
   }
 
   return (
