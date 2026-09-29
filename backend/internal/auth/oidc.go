@@ -73,12 +73,16 @@ func (o *OIDC) init(ctx context.Context) error {
 
 // State is kept (sealed) in a short-lived cookie between login and callback.
 type State struct {
-	State    string    `json:"s"`
-	Nonce    string    `json:"n"`
-	Verifier string    `json:"v"`
-	ReturnTo string    `json:"r"`
-	StepUp   bool      `json:"u,omitempty"`
-	Expires  time.Time `json:"e"`
+	State    string `json:"s"`
+	Nonce    string `json:"n"`
+	Verifier string `json:"v"`
+	ReturnTo string `json:"r"`
+	StepUp   bool   `json:"u,omitempty"`
+	// SessionID binds a step-up to the session that started it. The IdP
+	// redirect back is a cross-site navigation, so the SameSite=Strict session
+	// cookie is not sent with the callback; the sealed state cookie (Lax) is.
+	SessionID string    `json:"sid,omitempty"`
+	Expires   time.Time `json:"e"`
 }
 
 func random() string {

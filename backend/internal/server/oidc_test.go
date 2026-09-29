@@ -155,7 +155,21 @@ clusters: [{ id: dev, endpoint: "` + fake.URL() + `" }]
 		idp.mu.Lock()
 		idp.nonces["code-1"] = q.Get("nonce")
 		idp.mu.Unlock()
-		final, _ = b.do("GET", "/auth/oidc/callback?code=code-1&state="+url.QueryEscape(q.Get("state")), "")
+		// The IdP redirect back is a cross-site navigation: browsers send the
+		// SameSite=Lax state cookie but NOT the SameSite=Strict session cookie.
+		appURL, _ := url.Parse(app.URL)
+		req, _ := http.NewRequest("GET", app.URL+"/auth/oidc/callback?code=code-1&state="+url.QueryEscape(q.Get("state")), nil)
+		for _, ck := range b.c.Jar.Cookies(appURL) {
+			if strings.Contains(ck.Name, "oidc") {
+				req.AddCookie(ck)
+			}
+		}
+		final, err := (&http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}).Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		final.Body.Close()
+		b.c.Jar.SetCookies(appURL, final.Cookies())
 		return loc, final
 	}
 

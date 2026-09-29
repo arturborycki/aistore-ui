@@ -192,6 +192,9 @@ func serve(w http.ResponseWriter, req *http.Request, rt *Route, d *Deps) {
 	}
 
 	ev := AuditEvent{Operation: rt.Operation, Action: rt.Action, Cluster: cluster, Resource: resourceLabel(cluster, p), ARN: rt.Resource(p)}
+	if target := bodyTarget(body); target != "" {
+		ev.Resource += "/" + target
+	}
 	if rt.Mutating() && len(q) > 0 {
 		ev.Params = map[string]string{}
 		for k := range q {
@@ -365,4 +368,29 @@ func writeErr(w http.ResponseWriter, err error) {
 		return
 	}
 	apierr.Write(w, http.StatusInternalServerError, "InternalError", "internal error")
+}
+
+// bodyTarget names the entity a create/rename/register request acts on, for audit records.
+func bodyTarget(body []byte) string {
+	if len(body) == 0 {
+		return ""
+	}
+	var b struct {
+		Name        string   `json:"name"`
+		Namespace   []string `json:"namespace"`
+		Destination *struct {
+			Namespace []string `json:"namespace"`
+			Name      string   `json:"name"`
+		} `json:"destination"`
+	}
+	if json.Unmarshal(body, &b) != nil {
+		return ""
+	}
+	switch {
+	case b.Destination != nil:
+		return "→ " + strings.Join(append(append([]string{}, b.Destination.Namespace...), b.Destination.Name), ".")
+	case len(b.Namespace) > 0:
+		return strings.Join(b.Namespace, ".")
+	}
+	return b.Name
 }

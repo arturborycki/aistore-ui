@@ -5,6 +5,7 @@
 package aistortest
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -226,6 +227,7 @@ func (f *Fake) verify(r *http.Request, body []byte, service string, secretFor fu
 
 func (f *Fake) serveCatalog(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(r.Body)
+	r.Body = io.NopCloser(bytes.NewReader(body))
 	var user string
 	ak, ok := f.verify(r, body, "s3tables", func(ak string) (string, string, bool) {
 		f.mu.Lock()

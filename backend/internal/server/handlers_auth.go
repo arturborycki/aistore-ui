@@ -292,6 +292,9 @@ func (s *Server) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login?error=idp_unavailable", http.StatusFound)
 		return
 	}
+	if stepUp {
+		state.SessionID = stateFrom(r).id
+	}
 	raw, _ := json.Marshal(state)
 	sealed, err := s.sessions.Keys().Seal(raw, []byte("oidc-state"))
 	if err != nil {
@@ -359,6 +362,11 @@ func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
 
 	if state.StepUp {
 		st := stateFrom(r)
+		if st == nil && state.SessionID != "" {
+			if sess, err := s.sessions.Load(r.Context(), state.SessionID); err == nil {
+				st = &reqState{id: state.SessionID, s: sess}
+			}
+		}
 		if st == nil || st.s.User.Subject != id.User.Subject || (!id.AuthTime.IsZero() && time.Since(id.AuthTime) > 5*time.Minute) {
 			s.recordAuth(r, actor, "StepUp", "denied", "re-authentication did not match the signed-in user")
 			http.Redirect(w, r, "/login?error=stepup", http.StatusFound)

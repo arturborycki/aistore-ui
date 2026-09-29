@@ -1,6 +1,9 @@
 package server
 
 import (
+	"bytes"
+	"crypto/rand"
+	"encoding/base64"
 	"io/fs"
 	"net/http"
 	"path"
@@ -41,8 +44,22 @@ func (s *Server) spaHandler() http.Handler {
 			http.Error(w, "UI not built", http.StatusNotFound)
 			return
 		}
+		// A per-response nonce lets the SPA's few runtime <style> elements
+		// (e.g. scroll locking in dialogs) pass a CSP without 'unsafe-inline'.
+		nonce := newNonce()
+		idx = bytes.ReplaceAll(idx, []byte("__CSP_NONCE__"), []byte(nonce))
+		w.Header().Set("Content-Security-Policy", strings.Replace(w.Header().Get("Content-Security-Policy"),
+			"style-src 'self'", "style-src 'self' 'nonce-"+nonce+"'", 1))
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
 		_, _ = w.Write(idx)
 	})
+}
+
+func newNonce() string {
+	b := make([]byte, 18)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	return base64.StdEncoding.EncodeToString(b)
 }
