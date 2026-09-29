@@ -304,10 +304,10 @@ func checkTablePropertyKey(k string) error {
 
 // allowedMetadataProps are write.metadata.* properties that do not relocate metadata.
 var allowedMetadataProps = map[string]bool{
-	"write.metadata.compression-codec":                   true,
-	"write.metadata.metrics.default":                     true,
-	"write.metadata.previous-versions-max":               true,
-	"write.metadata.delete-after-commit.enabled":         true,
+	"write.metadata.compression-codec":                    true,
+	"write.metadata.metrics.default":                      true,
+	"write.metadata.previous-versions-max":                true,
+	"write.metadata.delete-after-commit.enabled":          true,
 	"write.metadata.metrics.max-inferred-column-defaults": true,
 }
 

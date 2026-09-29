@@ -43,7 +43,7 @@ type Server struct {
 	loginLimiter *limiter
 
 	// refresh serialises credential renewal per session+cluster.
-	refreshMu sync.Mutex
+	refreshMu  sync.Mutex
 	refreshing map[string]*sync.Mutex
 }
 

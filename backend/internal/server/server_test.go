@@ -299,13 +299,13 @@ func TestBuiltinLoginAndCrossSite(t *testing.T) {
 
 func TestSafeReturnTo(t *testing.T) {
 	cases := map[string]string{
-		"":                    "/",
-		"/c/dev/wh/a":         "/c/dev/wh/a",
-		"//evil.example":      "/",
-		"/\\evil.example":     "/",
-		"https://evil":        "/",
-		"/api/c/dev":          "/",
-		"/c/dev?x=1":          "/c/dev?x=1",
+		"":                     "/",
+		"/c/dev/wh/a":          "/c/dev/wh/a",
+		"//evil.example":       "/",
+		"/\\evil.example":      "/",
+		"https://evil":         "/",
+		"/api/c/dev":           "/",
+		"/c/dev?x=1":           "/c/dev?x=1",
 		"/c/dev\r\nSet-Cookie": "/",
 	}
 	for in, want := range cases {
