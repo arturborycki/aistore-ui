@@ -1,0 +1,11 @@
+node_modules/
+frontend/dist/
+backend/internal/web/dist/*
+!backend/internal/web/dist/.keep
+backend/bin/
+*.local
+.env
+deploy/secrets/
+coverage/
+test-results/
+playwright-report/
