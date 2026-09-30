@@ -103,6 +103,26 @@ open http://localhost:8080     # alice / bob, passwords in deploy/compose/.env
 
 Keycloak puts each user into a group (`catalog-admin`, `catalog-readonly`). AIStor maps the `groups` claim to policies of the same names, which live in `deploy/compose/policies/`. Keycloak is published as `keycloak.localhost:8081`. Browsers resolve `*.localhost` to loopback, and inside the Compose network the same name is an alias of the Keycloak container, so every party sees the same issuer.
 
+## On a workstation, over HTTPS on the LAN
+
+To try the UI against an existing AIStor from other machines on your network:
+
+```bash
+mkdir -p deploy/local/tls   # git-ignored: holds the session key and TLS key
+cp deploy/lan/config.example.yaml deploy/local/config.yaml   # fill in the placeholders
+mkcert -cert-file deploy/local/tls/cert.pem -key-file deploy/local/tls/key.pem <host>.local <lan-ip> localhost 127.0.0.1 ::1
+chmod 644 deploy/local/tls/key.pem   # readable by the container's non-root user
+docker build -t aistor-catalog-ui:local .
+docker run -d --name aistor-ui-local --restart unless-stopped -p 443:8443 --read-only \
+  -v "$PWD/deploy/local/config.yaml:/etc/aistor-ui/config.yaml:ro" -v "$PWD/deploy/local/tls:/etc/aistor-ui/tls:ro" aistor-catalog-ui:local
+```
+
+Every device must trust mkcert's CA:
+- **This machine:** run `mkcert -install`.
+- **Other devices:** import `$(mkcert -CAROOT)/rootCA.pem` as a trusted root. Never copy `rootCA-key.pem`.
+
+People must open one of the names in `publicUrl` / `extraOrigins`; sign-in from any other origin is rejected. For certificates that every device already trusts, use a real certificate for a DNS name instead of mkcert.
+
 ## Kubernetes
 
 ### Helm
