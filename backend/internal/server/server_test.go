@@ -34,7 +34,10 @@ type env struct {
 // advance moves the session manager's clock forward.
 func (e *env) advance(d time.Duration) { e.skew.Add(int64(d)) }
 
-func newEnv(t *testing.T, useRedis bool) *env {
+func newEnv(t *testing.T, useRedis bool) *env { return newEnvCfg(t, useRedis, "") }
+
+// newEnvCfg appends extra YAML (top-level keys) to the test configuration.
+func newEnvCfg(t *testing.T, useRedis bool, extra string) *env {
 	t.Helper()
 	fake := aistortest.New(
 		&aistortest.User{AccessKey: "alice", SecretKey: "alice-secret-key", LDAPPass: "alice-pw", Allowed: []string{"*"}},
@@ -50,7 +53,7 @@ session: { keys: [{ id: k1, value: "00000000000000000000000000000000000000000000
 auth: { ldap: { enabled: true }, builtin: { enabled: true }, adminUsers: [alice] }
 clusters: [{ id: dev, endpoint: "` + fake.URL() + `" }]
 limits: { loginPerMinute: 1000 }
-`
+` + extra
 	cfg, err := config.Parse([]byte(cfgYAML))
 	if err != nil {
 		t.Fatal(err)

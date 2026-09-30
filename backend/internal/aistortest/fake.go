@@ -51,6 +51,9 @@ type Fake struct {
 	users    map[string]*User
 	sessions map[string]stsSession // temp access key → session
 	Requests []Recorded
+	// Objects, when set, serves path-style S3 requests (/<bucket>/<key>).
+	Objects        *ObjectStore
+	ObjectRequests []Recorded
 	// Handler answers authorised catalog requests. Defaults to a small JSON responder.
 	Handler func(w http.ResponseWriter, r *http.Request, user string)
 	// ExpireNext makes the next catalog request fail with ExpiredToken.
@@ -104,6 +107,10 @@ func (f *Fake) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.HasPrefix(r.URL.Path, "/_iceberg/v1/") {
 		f.serveCatalog(w, r)
+		return
+	}
+	if f.Objects != nil && r.URL.Path != "/" {
+		f.serveObjects(w, r)
 		return
 	}
 	http.NotFound(w, r)

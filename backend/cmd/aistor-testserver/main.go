@@ -40,6 +40,9 @@ func main() {
 		&aistortest.User{AccessKey: "bob", SecretKey: "bob-password", LDAPPass: "bob-password", Allowed: []string{"GET *"}},
 	)
 	f.Handler = func(w http.ResponseWriter, r *http.Request, _ string) { cat.Handle(w, r) }
+	// A versioned bucket for Apache Ossie semantic models (alice writes, bob reads).
+	f.Objects = aistortest.NewObjectStore()
+	f.Objects.CreateBucket("aistor-semantics", true)
 	f.Server.Close()
 	srv := &http.Server{Addr: *addr, Handler: f.Server.Config.Handler}
 	go func() {

@@ -24,6 +24,7 @@ import (
 	"github.com/arturborycki/aistore-ui/backend/internal/auth"
 	"github.com/arturborycki/aistore-ui/backend/internal/catalog"
 	"github.com/arturborycki/aistore-ui/backend/internal/config"
+	"github.com/arturborycki/aistore-ui/backend/internal/semantic"
 	"github.com/arturborycki/aistore-ui/backend/internal/session"
 )
 
@@ -130,6 +131,11 @@ func (s *Server) Handler() http.Handler {
 				MaxBodyBytes:    s.cfg.Limits.MaxBodyBytes,
 				PreviewMaxRows:  s.cfg.Limits.PreviewMaxRows,
 				Log:             s.log,
+				Extra: func(r chi.Router, d *catalog.Deps) {
+					if s.cfg.Semantic.Enabled {
+						semantic.NewAPI(s.cfg.Semantic, d, s.editorName).Mount(r)
+					}
+				},
 			})
 			r.NotFound(func(w http.ResponseWriter, _ *http.Request) {
 				apierr.Write(w, http.StatusNotFound, "NotFound", "unknown API route")
@@ -249,6 +255,14 @@ func (s *Server) actor(r *http.Request) audit.Actor {
 		return audit.Actor{Subject: st.s.User.Subject, Username: st.s.User.Username, Method: st.s.User.Method}
 	}
 	return audit.Actor{}
+}
+
+// editorName identifies the caller on saved semantic model versions.
+func (s *Server) editorName(r *http.Request) string {
+	if st := stateFrom(r); st != nil {
+		return st.s.User.Username
+	}
+	return ""
 }
 
 func (s *Server) recordCatalog(r *http.Request, ev catalog.AuditEvent) {

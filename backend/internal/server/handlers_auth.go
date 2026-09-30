@@ -455,7 +455,10 @@ func (s *Server) mePayload(sess *session.Session) map[string]any {
 		"stepUpValidUntil":    stepUpUntil,
 		"credentialsExpireAt": credsExpiry(sess),
 		"sessionHandle":       sess.Handle,
-		"version":             s.version,
+		"features": map[string]any{
+			"semantic": map[string]any{"enabled": s.cfg.Semantic.Enabled, "bucket": s.cfg.Semantic.Bucket, "serving": s.cfg.Semantic.Serving.Enabled},
+		},
+		"version": s.version,
 	}
 }
 

@@ -28,6 +28,32 @@ type Config struct {
 	Clusters []Cluster `yaml:"clusters"`
 	Audit    Audit     `yaml:"audit"`
 	Limits   Limits    `yaml:"limits"`
+	Semantic Semantic  `yaml:"semantic"`
+}
+
+// Semantic configures Apache Ossie semantic models, stored as objects in a
+// bucket on each cluster and read/written with the user's own credentials.
+type Semantic struct {
+	Enabled bool   `yaml:"enabled"`
+	Bucket  string `yaml:"bucket"`
+	// MaxModelBytes bounds a model document (default 1 MiB).
+	MaxModelBytes int `yaml:"maxModelBytes"`
+	// CatalogAliases maps a warehouse to the catalog name engines use for it,
+	// for dataset `source` values (default: the warehouse name).
+	CatalogAliases map[string]string `yaml:"catalogAliases"`
+	// MaxScan bounds how many model objects a search, usage check or index reads.
+	MaxScan int `yaml:"maxScan"`
+	// Serving exposes read-only /ossie/v1 and an MCP endpoint to tools and
+	// agents authenticating with OIDC bearer tokens.
+	Serving SemanticServing `yaml:"serving"`
+}
+
+type SemanticServing struct {
+	Enabled bool `yaml:"enabled"`
+	// Audiences accepted in bearer tokens (default: the OIDC client ID).
+	Audiences []string `yaml:"audiences"`
+	// RequestsPerMinute per token subject (default 120).
+	RequestsPerMinute int `yaml:"requestsPerMinute"`
 }
 
 type Server struct {
@@ -132,7 +158,10 @@ type Limits struct {
 	PreviewMaxRows    int   `yaml:"previewMaxRows"`
 }
 
-var clusterIDRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
+var (
+	clusterIDRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
+	bucketRe    = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$`)
+)
 
 // Load reads the configuration from path.
 func Load(path string) (*Config, error) {
@@ -214,6 +243,15 @@ func (c *Config) applyDefaults() {
 			cl.Name = cl.ID
 		}
 	}
+	if c.Semantic.MaxModelBytes == 0 {
+		c.Semantic.MaxModelBytes = 1 << 20
+	}
+	if c.Semantic.MaxScan == 0 {
+		c.Semantic.MaxScan = 200
+	}
+	if c.Semantic.Serving.RequestsPerMinute == 0 {
+		c.Semantic.Serving.RequestsPerMinute = 120
+	}
 	if c.Audit.Retain == 0 {
 		c.Audit.Retain = 500
 	}
@@ -293,6 +331,22 @@ func decodeKey(v string) ([]byte, error) {
 
 func (c *Config) validate() error {
 	var errs []error
+	if c.Semantic.Enabled {
+		if !bucketRe.MatchString(c.Semantic.Bucket) {
+			errs = append(errs, errors.New("semantic.bucket must be a valid bucket name (3-63 lowercase letters, digits, dots and hyphens)"))
+		}
+		if c.Semantic.MaxModelBytes < 1024 || c.Semantic.MaxModelBytes > 16<<20 {
+			errs = append(errs, errors.New("semantic.maxModelBytes must be between 1 KiB and 16 MiB"))
+		}
+	}
+	if c.Semantic.Serving.Enabled {
+		if !c.Semantic.Enabled {
+			errs = append(errs, errors.New("semantic.serving requires semantic.enabled"))
+		}
+		if !c.Auth.OIDC.Enabled {
+			errs = append(errs, errors.New("semantic.serving authenticates bearer tokens from the OIDC provider; enable auth.oidc"))
+		}
+	}
 	if c.Server.PublicURL == "" {
 		errs = append(errs, errors.New("server.publicUrl is required"))
 	} else {

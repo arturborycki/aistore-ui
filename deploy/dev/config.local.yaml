@@ -19,3 +19,6 @@ clusters:
     endpoint: "http://127.0.0.1:9000"
 limits:
   loginPerMinute: 120
+semantic:
+  enabled: true
+  bucket: aistor-semantics

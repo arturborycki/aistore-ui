@@ -55,6 +55,9 @@ type Deps struct {
 	MaxBodyBytes    int64
 	PreviewMaxRows  int
 	Log             *slog.Logger
+	// Extra mounts additional routes under /c/{cluster} that share these deps
+	// (e.g. semantic models).
+	Extra func(r chi.Router, d *Deps)
 }
 
 // Mount registers every route of the allow-list under /c/{cluster}.
@@ -67,6 +70,9 @@ func Mount(r chi.Router, d Deps) {
 			}))
 		}
 		mountSearch(r, &d)
+		if d.Extra != nil {
+			d.Extra(r, &d)
+		}
 		r.NotFound(func(w http.ResponseWriter, _ *http.Request) {
 			apierr.Write(w, http.StatusNotFound, "NotFound", "unknown catalog operation")
 		})
@@ -402,3 +408,27 @@ func bodyTarget(body []byte) string {
 	}
 	return b.Name
 }
+
+// Upstream runs send with the caller's credentials for cluster and, if AIStor
+// rejects them as expired or unknown, retries once with fresh ones. It lets
+// other packages (e.g. semantic models stored as objects) share the session's
+// credential handling.
+func (d *Deps) Upstream(req *http.Request, cluster string, send func(*session.Credentials) (*http.Response, error)) (*http.Response, error) {
+	creds, err := d.Credentials(req, cluster, false)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := send(creds)
+	if err != nil || !credentialRejected(resp) {
+		return resp, err
+	}
+	resp.Body.Close()
+	if creds, err = d.Credentials(req, cluster, true); err != nil {
+		return nil, err
+	}
+	return send(creds)
+}
+
+// ClassifyTransportErr maps a credential or transport error to an HTTP status,
+// error type and message, as the catalog proxy does.
+func ClassifyTransportErr(err error) (int, string, string) { return classifyTransportErr(err) }
