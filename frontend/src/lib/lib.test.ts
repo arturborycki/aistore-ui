@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildQuery } from './api'
+import { activityCsv, type AuditRecord } from './session'
 import { formatBytes, humanize } from './format'
 import { decodeNamespaceParam, encodeNamespace, validateLevel, WAREHOUSE_NAME_RE } from './namespace'
 import { diffProperties, validateDrafts } from '@/features/namespaces/PropertiesEditor'
@@ -51,5 +52,17 @@ describe('helpers', () => {
     expect(formatBytes(0)).toBe('0 B')
     expect(formatBytes(1536)).toBe('1.50 KiB')
     expect(humanize('icebergCompaction')).toBe('Iceberg compaction')
+  })
+})
+
+describe('activity export', () => {
+  it('quotes and neutralises formulas', () => {
+    const rec = {
+      time: '2026-01-01T00:00:00Z', requestId: 'r', kind: 'catalog', actor: { sub: 's', username: 'a,b' }, operation: '=HYPERLINK("x")',
+      action: 'x', cluster: 'c', resource: 'line\nbreak', arn: '', status: 200, outcome: 'success', durationMs: 1,
+    } as AuditRecord
+    const csv = activityCsv([rec])
+    const row = csv.split('\r\n')[1]
+    expect(row.startsWith('2026-01-01T00:00:00Z,"a,b",catalog,"\'=HYPERLINK(""x"")",x,c,"line\nbreak"')).toBe(true)
   })
 })

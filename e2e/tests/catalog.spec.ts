@@ -112,14 +112,14 @@ test('read-only user is denied by AIStor and told which permission is missing', 
   await page.keyboard.press('Escape')
   // Bob cannot see everyone's activity.
   await page.goto('/c/local/activity')
-  await expect(page.getByRole('tab', { name: 'Everyone' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Everyone' })).toHaveCount(0)
 })
 
 test('activity records changes; dark mode; command palette; logout', async ({ page }) => {
   const check = watchConsole(page)
   await login(page, 'alice', 'alice-password')
   await page.goto('/c/local/activity')
-  await page.getByRole('tab', { name: 'Everyone' }).click()
+  await page.getByRole('button', { name: 'Everyone' }).click()
   await expect(page.locator('tbody tr').first()).toBeVisible()
   await shot(page, '07-activity')
 
@@ -132,7 +132,7 @@ test('activity records changes; dark mode; command palette; logout', async ({ pa
   await shot(page, '08-warehouse-dark')
 
   await page.keyboard.press('Control+k')
-  await page.getByPlaceholder(/Jump to/).fill('marketing')
+  await page.getByPlaceholder(/Search tables/).fill('marketing')
   await page.keyboard.press('Enter')
   await expect(page).toHaveURL(/\/ns\/marketing$/)
   await shot(page, '09-namespace-dark')

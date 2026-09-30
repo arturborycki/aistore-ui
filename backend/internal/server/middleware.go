@@ -175,8 +175,12 @@ func (s *Server) loadSession(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if err := s.sessions.Touch(r.Context(), c.Value, sess); err != nil {
-			s.log.Warn("session touch failed", "err", err)
+		// Background polls (e.g. the UI's periodic /auth/me) do not count as
+		// activity, so the idle timeout still applies to an unattended tab.
+		if r.Header.Get("X-Aistor-Background") == "" {
+			if err := s.sessions.Touch(r.Context(), c.Value, sess); err != nil {
+				s.log.Warn("session touch failed", "err", err)
+			}
 		}
 		ctx := context.WithValue(r.Context(), ctxSession, &reqState{id: c.Value, s: sess})
 		next.ServeHTTP(w, r.WithContext(ctx))

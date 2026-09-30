@@ -383,3 +383,23 @@ export async function tagTable(cluster: string, wh: string, ns: Namespace, table
 export async function untagTable(cluster: string, wh: string, ns: Namespace, table: string, keys: string[]) {
   await api.del(`${t(cluster, wh, ns, table)}/tags`, { query: { tagKeys: keys } })
 }
+
+export interface SearchHit {
+  kind: 'warehouse' | 'namespace' | 'table' | 'view'
+  warehouse: string
+  /** parent namespace (for a namespace hit: its parent) */
+  namespace?: string[]
+  name: string
+}
+
+export interface SearchResult {
+  results: SearchHit[]
+  truncated: boolean
+  requests: number
+  skipped: number
+}
+
+/** Catalog-wide name search, run by the server with the caller's own permissions. */
+export async function searchCatalog(cluster: string, q: string, signal?: AbortSignal) {
+  return (await api.get<SearchResult>(`/api/c/${encodeURIComponent(cluster)}/search`, { query: { q, limit: 50 }, signal })).data
+}

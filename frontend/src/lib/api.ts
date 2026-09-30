@@ -9,7 +9,9 @@ import { parseJSON, stringifyJSON } from './json'
  *   s3tables action / resource ARN the server reported, so "no access" states
  *   can tell the user exactly what permission is missing.
  * - A StepUpRequired response triggers the registered re-authentication flow
- *   and, on success, the request is retried once.
+ *   and, on success, the request is retried once. CredentialsExpired (the
+ *   short-lived AIStor credentials of a password session ran out) does the
+ *   same with a "sign in again" prompt instead of ending the session.
  */
 
 export class ApiError extends Error {
@@ -41,7 +43,7 @@ export class ApiError extends Error {
     return this.status === 409
   }
   get isSessionExpired() {
-    return this.status === 401
+    return this.status === 401 && this.type !== 'CredentialsExpired'
   }
 }
 
@@ -50,10 +52,29 @@ export function setCsrfToken(token: string) {
   csrfToken = token
 }
 
-type StepUpHandler = () => Promise<boolean>
+export type ReauthReason = 'step-up' | 'credentials'
+type StepUpHandler = (reason: ReauthReason) => Promise<boolean>
 let stepUpHandler: StepUpHandler | null = null
 export function registerStepUpHandler(h: StepUpHandler | null) {
   stepUpHandler = h
+}
+
+// Concurrent requests failing for the same reason share one prompt.
+let pendingReauth: Promise<boolean> | null = null
+export function reauthenticate(reason: ReauthReason): Promise<boolean> {
+  if (!stepUpHandler) return Promise.resolve(false)
+  if (!pendingReauth) {
+    pendingReauth = stepUpHandler(reason).finally(() => {
+      pendingReauth = null
+    })
+  }
+  return pendingReauth
+}
+
+let lastActivity = Date.now()
+/** Time of the last request that counted as user activity (extends the idle timeout). */
+export function lastActivityAt() {
+  return lastActivity
 }
 
 type Listener = () => void
@@ -89,6 +110,8 @@ export interface RequestOptions {
   query?: Query
   body?: unknown
   signal?: AbortSignal
+  /** a poll that must not keep an idle session alive */
+  background?: boolean
   /** internal: set on the retry after step-up */
   _retried?: boolean
 }
@@ -99,6 +122,8 @@ export async function request<T>(method: string, path: string, opts: RequestOpti
   const headers: Record<string, string> = { Accept: 'application/json' }
   if (opts.body !== undefined) headers['Content-Type'] = 'application/json'
   if (!SAFE.has(method) && csrfToken) headers['X-CSRF-Token'] = csrfToken
+  if (opts.background) headers['X-Aistor-Background'] = '1'
+  else lastActivity = Date.now()
 
   let resp: Response
   try {
@@ -134,11 +159,11 @@ export async function request<T>(method: string, path: string, opts: RequestOpti
   }
   const err = new ApiError({ status: resp.status, type, message, headers: resp.headers })
 
-  if (err.type === 'StepUpRequired' && stepUpHandler && !opts._retried) {
-    const ok = await stepUpHandler()
+  if ((err.type === 'StepUpRequired' || err.type === 'CredentialsExpired') && !opts._retried && !opts.background) {
+    const ok = await reauthenticate(err.type === 'StepUpRequired' ? 'step-up' : 'credentials')
     if (ok) return request<T>(method, path, { ...opts, _retried: true })
   }
-  if (resp.status === 401 && !path.startsWith('/auth/')) {
+  if (err.isSessionExpired && !path.startsWith('/auth/')) {
     expiredListeners.forEach((l) => l())
   }
   throw err

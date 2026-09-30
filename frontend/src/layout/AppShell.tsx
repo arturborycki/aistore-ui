@@ -1,7 +1,8 @@
-import { useCallback, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate, useParams } from 'react-router'
-import { Activity, ChevronsUpDown, LayoutDashboard, LogOut, Monitor, Moon, PanelLeft, Search, Server, ShieldCheck, Sun, Warehouse } from 'lucide-react'
+import { Activity, ChevronsUpDown, LaptopMinimal, LayoutDashboard, LogOut, Monitor, Moon, PanelLeft, Search, Server, ShieldCheck, Sun, Warehouse } from 'lucide-react'
 import { useAuth, useMe } from '@/auth/AuthContext'
+import { SessionWarnings } from '@/auth/SessionWarnings'
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuTrigger } from '@/components/ui/dropdown'
 import { Kbd } from '@/components/ui/kbd'
 import { Tooltip } from '@/components/ui/tooltip'
@@ -17,6 +18,19 @@ import { useCluster } from './useCluster'
 
 const MIN_W = 220
 const MAX_W = 380
+const NARROW = '(max-width: 767px)'
+
+/** True below the md breakpoint, where the sidebar becomes an overlay. */
+function useNarrow() {
+  return useSyncExternalStore(
+    (cb) => {
+      const m = window.matchMedia(NARROW)
+      m.addEventListener('change', cb)
+      return () => m.removeEventListener('change', cb)
+    },
+    () => window.matchMedia(NARROW).matches,
+  )
+}
 
 function ClusterSwitcher({ cluster }: { cluster: string }) {
   const me = useMe()
@@ -72,8 +86,9 @@ function NavItem({ to, icon, children, end }: { to: string; icon: ReactNode; chi
   )
 }
 
-function UserMenu() {
+function UserMenu({ cluster }: { cluster: string }) {
   const me = useMe()
+  const navigate = useNavigate()
   const { logout } = useAuth()
   const { theme, setTheme } = useTheme()
   const initials = (me.user.name || me.user.username)
@@ -113,6 +128,9 @@ function UserMenu() {
           <MenuRadioItem value="dark" icon={<Moon />}>Dark</MenuRadioItem>
         </MenuRadioGroup>
         <MenuSeparator />
+        <MenuItem icon={<LaptopMinimal />} onSelect={() => navigate(paths.sessions(cluster))}>
+          Sessions & devices
+        </MenuItem>
         <MenuItem icon={<LogOut />} onSelect={() => void logout()}>
           Sign out
         </MenuItem>
@@ -129,6 +147,21 @@ export function AppShell() {
   const [width, setWidth] = useState(() => getPref('sidebar-width', 264))
   const [collapsed, setCollapsed] = useState(() => getPref('sidebar-collapsed', false))
   const dragging = useRef(false)
+  const narrow = useNarrow()
+  const [mobileOpen, setMobileOpen] = useState(false)
+  // Navigating closes the overlay sidebar on small screens.
+  const [seenPath, setSeenPath] = useState(location.pathname)
+  if (seenPath !== location.pathname) {
+    setSeenPath(location.pathname)
+    setMobileOpen(false)
+  }
+  useEffect(() => {
+    if (!mobileOpen) return
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setMobileOpen(false)
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [mobileOpen])
+  const showSidebar = narrow ? mobileOpen : !collapsed
 
   const onDrag = useCallback((e: React.PointerEvent) => {
     dragging.current = true
@@ -149,6 +182,10 @@ export function AppShell() {
   }, [width])
 
   const toggleSidebar = () => {
+    if (narrow) {
+      setMobileOpen((v) => !v)
+      return
+    }
     setCollapsed((v) => {
       setPref('sidebar-collapsed', !v)
       return !v
@@ -157,8 +194,14 @@ export function AppShell() {
 
   return (
     <div className="flex h-screen overflow-hidden">
-      {!collapsed && (
-        <aside className="relative flex shrink-0 flex-col border-r border-border bg-sidebar" style={{ width }} aria-label="Sidebar">
+      {narrow && mobileOpen && <div className="fixed inset-0 z-30 bg-black/40" aria-hidden onClick={() => setMobileOpen(false)} />}
+      {showSidebar && (
+        <aside
+          id="sidebar"
+          className={cn('flex shrink-0 flex-col border-r border-border bg-sidebar', narrow ? 'fixed inset-y-0 left-0 z-40 shadow-xl' : 'relative')}
+          style={{ width: narrow ? Math.min(300, window.innerWidth - 48) : width }}
+          aria-label="Sidebar"
+        >
           <div className="flex h-12 items-center gap-2 px-3">
             <Link to={paths.overview(cluster)} className="flex items-center gap-2">
               <BrandMark />
@@ -178,12 +221,16 @@ export function AppShell() {
             <NavItem to={paths.activity(cluster)} icon={<Activity />}>
               Activity
             </NavItem>
+            <NavItem to={paths.sessions(cluster)} icon={<LaptopMinimal />}>
+              Sessions
+            </NavItem>
           </nav>
           <div className="mx-3 mt-2 h-px bg-border" />
           <ExplorerTree key={cluster} cluster={cluster} />
           <div className="border-t border-border p-2">
-            <UserMenu />
+            <UserMenu cluster={cluster} />
           </div>
+          {!narrow && (
           <div
             role="separator"
             aria-orientation="vertical"
@@ -191,19 +238,22 @@ export function AppShell() {
             onPointerDown={onDrag}
             className="absolute -right-1 top-0 z-10 h-full w-2 cursor-col-resize hover:bg-accent/20"
           />
+          )}
         </aside>
       )}
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border px-3">
-          <Tooltip content={collapsed ? 'Show sidebar' : 'Hide sidebar'}>
-            <button onClick={toggleSidebar} className="rounded p-1.5 text-muted hover:bg-surface hover:text-fg" aria-label="Toggle sidebar">
+          <Tooltip content={showSidebar ? 'Hide sidebar' : 'Show sidebar'}>
+            <button onClick={toggleSidebar} className="rounded p-1.5 text-muted hover:bg-surface hover:text-fg" aria-label="Toggle sidebar" aria-expanded={showSidebar} aria-controls="sidebar">
               <PanelLeft className="size-4" />
             </button>
           </Tooltip>
-          <Breadcrumbs cluster={cluster} />
-          <div className="flex-1" />
+          <div className="min-w-0 flex-1 overflow-hidden">
+            <Breadcrumbs cluster={cluster} />
+          </div>
           <button
             onClick={() => palette.setOpen(true)}
+            aria-label="Search catalog"
             className="flex h-8 w-64 items-center gap-2 rounded-[var(--radius-control)] border border-border bg-bg-subtle px-2.5 text-[12.5px] text-subtle hover:border-border-strong hover:text-muted max-md:w-auto"
           >
             <Search className="size-3.5" />
@@ -212,12 +262,13 @@ export function AppShell() {
           </button>
         </header>
         <main className="min-h-0 flex-1 overflow-y-auto" key={`${params.cluster}`}>
-          <div className="mx-auto w-full max-w-[1400px] px-6 py-5" key={location.pathname}>
+          <div className="mx-auto w-full max-w-[1400px] px-4 py-4 md:px-6 md:py-5" key={location.pathname}>
             <Outlet />
           </div>
         </main>
       </div>
       <CommandPalette cluster={cluster} open={palette.open} onOpenChange={palette.setOpen} />
+      <SessionWarnings />
     </div>
   )
 }

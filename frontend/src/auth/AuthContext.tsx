@@ -23,7 +23,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryKey: ['me'],
     queryFn: async () => {
       try {
-        return await sessionApi.me()
+        // Background: polling must not keep an unattended tab's session alive.
+        return await sessionApi.me(true)
       } catch (e) {
         if (e instanceof ApiError && e.status === 401) return null
         throw e

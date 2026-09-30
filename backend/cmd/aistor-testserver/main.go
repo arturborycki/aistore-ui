@@ -18,6 +18,7 @@ import (
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:9000", "listen address")
+	control := flag.String("control", "127.0.0.1:9001", "listen address of the test control API (empty disables it)")
 	flag.Parse()
 
 	cat := aistortest.NewCatalog()
@@ -47,6 +48,20 @@ func main() {
 			os.Exit(1)
 		}
 	}()
+	if *control != "" {
+		// Test hooks for e2e: POST /expire-credentials makes the next catalog
+		// request fail with ExpiredToken, as when STS credentials run out.
+		mux := http.NewServeMux()
+		mux.HandleFunc("POST /expire-credentials", func(w http.ResponseWriter, _ *http.Request) {
+			f.ExpireNextRequest()
+			w.WriteHeader(http.StatusNoContent)
+		})
+		go func() {
+			if err := http.ListenAndServe(*control, mux); err != nil {
+				fmt.Fprintln(os.Stderr, "control:", err)
+			}
+		}()
+	}
 	fmt.Println("aistor-testserver listening on", *addr, strings.Repeat("-", 3), "users: alice (rw), bob (ro)")
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt)

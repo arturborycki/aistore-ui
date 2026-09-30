@@ -1,13 +1,16 @@
 package server
 
 import (
-	"github.com/alicebob/miniredis/v2"
-	"github.com/redis/go-redis/v9"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
+
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/arturborycki/aistore-ui/backend/internal/aistortest"
 	"github.com/arturborycki/aistore-ui/backend/internal/audit"
@@ -252,5 +255,30 @@ func TestRateLimitSharedThroughRedis(t *testing.T) {
 	mr.Close()
 	if !a.allow(ctx, "ip:1.2.3.4") {
 		t.Fatal("limiter should fail open when Redis is down")
+	}
+}
+
+func TestBackgroundRequestsDoNotExtendIdleSession(t *testing.T) {
+	e := newEnv(t, false)
+	b := e.browser()
+	b.login("alice", "alice-pw")
+	_, me := b.do("GET", "/auth/me", "")
+	first := me["idleExpiresAt"].(string)
+	e.advance(2 * time.Minute)
+	req, _ := http.NewRequest("GET", e.app.URL+"/auth/me", nil)
+	req.Header.Set("X-Aistor-Background", "1")
+	resp, err := b.c.Do(req)
+	if err != nil || resp.StatusCode != 200 {
+		t.Fatalf("background me: %v %v", err, resp)
+	}
+	var bg map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&bg)
+	resp.Body.Close()
+	if bg["idleExpiresAt"].(string) != first {
+		t.Fatalf("background request extended the session: %v → %v", first, bg["idleExpiresAt"])
+	}
+	_, me = b.do("GET", "/auth/me", "")
+	if me["idleExpiresAt"].(string) == first {
+		t.Fatalf("user request did not extend the session")
 	}
 }

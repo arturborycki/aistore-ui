@@ -113,6 +113,9 @@ func NewManager(store Store, keys *Keyring, idle, absolute time.Duration) *Manag
 
 func (m *Manager) now() time.Time { return m.nowFunc() }
 
+// SetClock replaces the manager's clock (tests).
+func (m *Manager) SetClock(now func() time.Time) { m.nowFunc = now }
+
 // NewID returns a 256-bit random, URL-safe identifier.
 func NewID() string {
 	b := make([]byte, 32)

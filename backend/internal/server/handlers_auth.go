@@ -451,6 +451,7 @@ func (s *Server) mePayload(sess *session.Session) map[string]any {
 		"clusters":            clusters,
 		"expiresAt":           sess.AbsoluteExpiry,
 		"idleTimeoutSeconds":  int(s.cfg.Session.IdleTimeout / time.Second),
+		"idleExpiresAt":       sess.LastSeen.Add(s.cfg.Session.IdleTimeout),
 		"stepUpValidUntil":    stepUpUntil,
 		"credentialsExpireAt": credsExpiry(sess),
 		"sessionHandle":       sess.Handle,

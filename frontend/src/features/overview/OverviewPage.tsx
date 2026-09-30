@@ -128,8 +128,8 @@ function LargestWarehouses({ cluster }: { cluster: string }) {
 }
 
 function RecentActivity({ cluster }: { cluster: string }) {
-  const q = useQuery({ queryKey: qk.activity('me'), queryFn: () => listActivity('me', 50) })
-  const rows = (q.data ?? []).filter((r) => r.kind === 'catalog').slice(0, 8)
+  const q = useQuery({ queryKey: [...qk.activity('me'), 'recent'], queryFn: () => listActivity({ scope: 'me', kind: 'catalog' }, 0, 8) })
+  const rows = q.data?.records ?? []
   return (
     <Card>
       <CardHeader

@@ -9,7 +9,9 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
@@ -25,7 +27,12 @@ type env struct {
 	fake  *aistortest.Fake
 	app   *httptest.Server
 	store session.Store
+	mgr   *session.Manager
+	skew  atomic.Int64 // added to the session manager's clock
 }
+
+// advance moves the session manager's clock forward.
+func (e *env) advance(d time.Duration) { e.skew.Add(int64(d)) }
 
 func newEnv(t *testing.T, useRedis bool) *env {
 	t.Helper()
@@ -61,14 +68,17 @@ limits: { loginPerMinute: 1000 }
 	}
 	kr, _ := session.NewKeyring([]session.KeyMaterial{{ID: "k1", Key: cfg.Session.Keys[0].Bytes()}})
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	srv, err := New(Options{Config: cfg, Log: log, Sessions: session.NewManager(store, kr, cfg.Session.IdleTimeout, cfg.Session.AbsoluteTTL), Audit: audit.NewLogger(log, astore, "")})
+	mgr := session.NewManager(store, kr, cfg.Session.IdleTimeout, cfg.Session.AbsoluteTTL)
+	e := &env{t: t, fake: fake, app: app, store: store, mgr: mgr}
+	mgr.SetClock(func() time.Time { return time.Now().Add(time.Duration(e.skew.Load())) })
+	srv, err := New(Options{Config: cfg, Log: log, Sessions: mgr, Audit: audit.NewLogger(log, astore, "")})
 	if err != nil {
 		t.Fatal(err)
 	}
 	app.Config.Handler = srv.Handler()
 	app.Start()
 	t.Cleanup(app.Close)
-	return &env{t: t, fake: fake, app: app, store: store}
+	return e
 }
 
 type browser struct {

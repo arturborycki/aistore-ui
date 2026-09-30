@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useLocation } from 'react-router'
 import { ExternalLink, ShieldCheck } from 'lucide-react'
-import { registerStepUpHandler } from '@/lib/api'
+import { registerStepUpHandler, type ReauthReason } from '@/lib/api'
 import { sessionApi } from '@/lib/session'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogBody, DialogContent, DialogFooter } from '@/components/ui/dialog'
@@ -15,11 +15,14 @@ import { useAuth } from './AuthContext'
  *  - LDAP / access-key sessions re-enter their password.
  *  - SSO sessions re-authenticate at the identity provider in a popup
  *    (prompt=login); if popups are blocked we fall back to a full redirect.
+ * It also renews expired AIStor credentials of password sessions in place
+ * (CredentialsExpired), so the user keeps their page and unsaved work.
  */
 export function StepUpProvider({ children }: { children: ReactNode }) {
   const { me, setMe } = useAuth()
   const location = useLocation()
   const [open, setOpen] = useState(false)
+  const [reason, setReason] = useState<ReauthReason>('step-up')
   const [secret, setSecret] = useState('')
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<unknown>(null)
@@ -36,10 +39,11 @@ export function StepUpProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     registerStepUpHandler(
-      () =>
+      (why) =>
         new Promise<boolean>((resolve) => {
           resolver.current?.(false)
           resolver.current = resolve
+          setReason(why)
           setOpen(true)
         }),
     )
@@ -94,7 +98,14 @@ export function StepUpProvider({ children }: { children: ReactNode }) {
     <>
       {children}
       <Dialog open={open} onOpenChange={(v) => !v && finish(false)}>
-        <DialogContent title="Confirm it's you" description="This action is sensitive. Confirm your identity to continue.">
+        <DialogContent
+          title={reason === 'credentials' ? 'Sign in again' : "Confirm it's you"}
+          description={
+            reason === 'credentials'
+              ? 'Your AIStor credentials expired. Enter your password to renew them; you stay on this page and nothing is lost.'
+              : 'This action is sensitive. Confirm your identity to continue.'
+          }
+        >
           {method === 'oidc' ? (
             <>
               <DialogBody>
@@ -127,7 +138,7 @@ export function StepUpProvider({ children }: { children: ReactNode }) {
                 </Button>
                 <Button type="submit" variant="primary" loading={pending}>
                   <ShieldCheck />
-                  Confirm
+                  {reason === 'credentials' ? 'Continue' : 'Confirm'}
                 </Button>
               </DialogFooter>
             </form>

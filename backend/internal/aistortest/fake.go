@@ -292,3 +292,11 @@ func allowed(u *User, op string) bool {
 	}
 	return false
 }
+
+// ExpireNextRequest makes the next catalog request fail with ExpiredToken
+// (safe to call while the server is running).
+func (f *Fake) ExpireNextRequest() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.ExpireNext = true
+}

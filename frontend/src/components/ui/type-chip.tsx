@@ -2,10 +2,10 @@ import { cn } from '@/lib/cn'
 import { typeFamily, typeLabel, type IcebergType } from '@/lib/iceberg'
 
 const family = {
-  numeric: 'text-[#2563eb] bg-[#2563eb]/10 dark:text-[#93c5fd] dark:bg-[#3b82f6]/15',
-  string: 'text-[#0d9488] bg-[#0d9488]/10 dark:text-[#5eead4] dark:bg-[#14b8a6]/15',
+  numeric: 'text-[#1d4ed8] bg-[#1d4ed8]/10 dark:text-[#93c5fd] dark:bg-[#3b82f6]/15',
+  string: 'text-[#115e59] bg-[#115e59]/10 dark:text-[#5eead4] dark:bg-[#14b8a6]/15',
   temporal: 'text-[#7c3aed] bg-[#7c3aed]/10 dark:text-[#c4b5fd] dark:bg-[#8b5cf6]/15',
-  boolean: 'text-[#c2410c] bg-[#c2410c]/10 dark:text-[#fdba74] dark:bg-[#f97316]/15',
+  boolean: 'text-[#9a3412] bg-[#9a3412]/10 dark:text-[#fdba74] dark:bg-[#f97316]/15',
   binary: 'text-[#52525b] bg-[#52525b]/10 dark:text-[#d4d4d8] dark:bg-[#71717a]/20',
   nested: 'text-[#be185d] bg-[#be185d]/10 dark:text-[#f9a8d4] dark:bg-[#ec4899]/15',
   other: 'text-muted bg-surface',

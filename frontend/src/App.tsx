@@ -1,18 +1,24 @@
+import { lazy, Suspense } from 'react'
 import { Navigate, Route, Routes, Link } from 'react-router'
 import { LoginPage } from '@/auth/LoginPage'
 import { RequireAuth, useMe } from '@/auth/AuthContext'
 import { StepUpComplete, StepUpProvider } from '@/auth/StepUp'
 import { AppShell } from '@/layout/AppShell'
 import { paths } from '@/layout/paths'
-import { OverviewPage } from '@/features/overview/OverviewPage'
-import { WarehousesPage } from '@/features/warehouses/WarehousesPage'
-import { WarehousePage } from '@/features/warehouses/WarehousePage'
-import { NamespacePage } from '@/features/namespaces/NamespacePage'
-import { ActivityPage } from '@/features/activity/ActivityPage'
-import { TablePage } from '@/features/tables/TablePage'
-import { ViewPage } from '@/features/views/ViewPage'
-import { CreateTablePage } from '@/features/tables/CreateTablePage'
+import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/ui/states'
+
+// Pages load on demand so the first paint only needs the shell.
+const named = <K extends string>(load: () => Promise<Record<K, React.ComponentType>>, name: K) => lazy(() => load().then((m) => ({ default: m[name] })))
+const OverviewPage = named(() => import('@/features/overview/OverviewPage'), 'OverviewPage')
+const WarehousesPage = named(() => import('@/features/warehouses/WarehousesPage'), 'WarehousesPage')
+const WarehousePage = named(() => import('@/features/warehouses/WarehousePage'), 'WarehousePage')
+const NamespacePage = named(() => import('@/features/namespaces/NamespacePage'), 'NamespacePage')
+const ActivityPage = named(() => import('@/features/activity/ActivityPage'), 'ActivityPage')
+const SessionsPage = named(() => import('@/features/sessions/SessionsPage'), 'SessionsPage')
+const TablePage = named(() => import('@/features/tables/TablePage'), 'TablePage')
+const ViewPage = named(() => import('@/features/views/ViewPage'), 'ViewPage')
+const CreateTablePage = named(() => import('@/features/tables/CreateTablePage'), 'CreateTablePage')
 
 function HomeRedirect() {
   const me = useMe()
@@ -21,7 +27,6 @@ function HomeRedirect() {
   return <Navigate to={paths.overview(first.id)} replace />
 }
 
-
 function NotFound() {
   return (
     <EmptyState title="Page not found" className="m-8" action={<Link to="/" className="text-accent-text hover:underline">Go home</Link>}>
@@ -29,6 +34,17 @@ function NotFound() {
     </EmptyState>
   )
 }
+
+function PageFallback() {
+  return (
+    <div className="flex flex-col gap-4" role="status" aria-busy="true" aria-label="Loading page">
+      <Skeleton className="h-12 w-1/3" />
+      <Skeleton className="h-64" />
+    </div>
+  )
+}
+
+const page = (el: React.ReactNode) => <Suspense fallback={<PageFallback />}>{el}</Suspense>
 
 export function App() {
   return (
@@ -39,22 +55,21 @@ export function App() {
         element={
           <RequireAuth>
             <StepUpProvider>
-              
-                <AppShell />
-              
+              <AppShell />
             </StepUpProvider>
           </RequireAuth>
         }
       >
         <Route path="/" element={<HomeRedirect />} />
-        <Route path="/c/:cluster" element={<OverviewPage />} />
-        <Route path="/c/:cluster/warehouses" element={<WarehousesPage />} />
-        <Route path="/c/:cluster/wh/:wh" element={<WarehousePage />} />
-        <Route path="/c/:cluster/wh/:wh/ns/:ns" element={<NamespacePage />} />
-        <Route path="/c/:cluster/wh/:wh/ns/:ns/new-table" element={<CreateTablePage />} />
-        <Route path="/c/:cluster/wh/:wh/ns/:ns/t/:table" element={<TablePage />} />
-        <Route path="/c/:cluster/wh/:wh/ns/:ns/v/:view" element={<ViewPage />} />
-        <Route path="/c/:cluster/activity" element={<ActivityPage />} />
+        <Route path="/c/:cluster" element={page(<OverviewPage />)} />
+        <Route path="/c/:cluster/warehouses" element={page(<WarehousesPage />)} />
+        <Route path="/c/:cluster/wh/:wh" element={page(<WarehousePage />)} />
+        <Route path="/c/:cluster/wh/:wh/ns/:ns" element={page(<NamespacePage />)} />
+        <Route path="/c/:cluster/wh/:wh/ns/:ns/new-table" element={page(<CreateTablePage />)} />
+        <Route path="/c/:cluster/wh/:wh/ns/:ns/t/:table" element={page(<TablePage />)} />
+        <Route path="/c/:cluster/wh/:wh/ns/:ns/v/:view" element={page(<ViewPage />)} />
+        <Route path="/c/:cluster/activity" element={page(<ActivityPage />)} />
+        <Route path="/c/:cluster/sessions" element={page(<SessionsPage />)} />
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>
