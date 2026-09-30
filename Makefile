@@ -42,7 +42,7 @@ e2e-live: ## Read-only UI walk against a running UI and real AIStor (LIVE_ACCESS
 	cd e2e && npx playwright test -c live/playwright.config.ts
 
 .PHONY: e2e-live-write
-e2e-live-write: ## UI write tests on new uitest_* tables in a scratch namespace of a real AIStor (needs LIVE_PYTHON with pyiceberg), then clean up
+e2e-live-write: ## UI write tests on new uitest_* tables in a scratch namespace of a real AIStor (needs LIVE_S3_ENDPOINT and LIVE_PYTHON with pyiceberg), then clean up
 	cd e2e && npx playwright test -c live/playwright.config.ts write.spec.ts; live/cleanup.sh
 
 .PHONY: dev

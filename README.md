@@ -230,6 +230,7 @@ LIVE_ACCESS_KEY=… LIVE_SECRET_KEY=… LIVE_CLUSTER=lab E2E_SCREENSHOTS=/tmp/sh
 - They create their own `uitest_<run>_*` tables, view and semantic model in a scratch namespace (`LIVE_WAREHOUSE`/`LIVE_NS`, default `edw1.scratch`).
 - They append data with PyIceberg (`e2e/live/append.py`, which refuses any table not named `uitest_*`), then exercise the UI: time travel, tags, rollback, expiry, schema/partition/sort evolution, row key, properties, table tags, maintenance, format upgrade, change sets, rename, drop and restore via Register, views and semantic models.
 - Everything is dropped with purge at the end; `e2e/live/cleanup.sh` removes leftovers from an interrupted run.
+- Set `LIVE_S3_ENDPOINT` to the AIStor S3 API (`http://<aistor-host>:<s3-port>`); PyIceberg appends data through it.
 - Install PyIceberg first, for example `python3 -m venv .venv && .venv/bin/pip install "pyiceberg[pyarrow,s3fs]"`, and set `LIVE_PYTHON=.venv/bin/python`.
 
 What real AIStor does that the test server does not model:

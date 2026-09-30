@@ -4,7 +4,7 @@ Guarded: only tables in edw1.scratch whose name starts with `uitest_` are
 accepted, so it can never write into existing data. Credentials come from the
 standard AWS_* environment variables (PyIceberg's SigV4 signer uses them).
 
-  python append.py <table> <rows> [endpoint]
+  LIVE_S3_ENDPOINT=http://<aistor-host>:<s3-port> python append.py <table> <rows>
 """
 import datetime, decimal, os, sys
 
@@ -14,7 +14,9 @@ from pyiceberg.types import (BooleanType, DateType, DecimalType, DoubleType, Flo
                              StringType, TimestampType, TimestamptzType)
 
 table_name, rows = sys.argv[1], int(sys.argv[2])
-endpoint = sys.argv[3] if len(sys.argv) > 3 else os.environ.get("LIVE_S3_ENDPOINT", "http://192.168.1.110:30320")
+endpoint = sys.argv[3] if len(sys.argv) > 3 else os.environ.get("LIVE_S3_ENDPOINT", "")
+if not endpoint:
+    sys.exit("set LIVE_S3_ENDPOINT to the AIStor S3 API, e.g. http://<aistor-host>:<s3-port>")
 if not table_name.startswith("uitest_"):
     sys.exit("refusing to write: only uitest_* tables may be written")
 

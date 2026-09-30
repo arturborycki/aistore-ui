@@ -195,10 +195,8 @@ func Parse(raw []byte) (*Config, error) {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 	c.applyDefaults()
-	if err := c.resolveSecrets(); err != nil {
-		return nil, err
-	}
-	if err := c.validate(); err != nil {
+	// Report every problem at once, so a first install shows all missing settings.
+	if err := errors.Join(c.validate(), c.resolveSecrets()); err != nil {
 		return nil, err
 	}
 	return &c, nil
@@ -410,7 +408,11 @@ func (c *Config) validate() error {
 			errs = append(errs, fmt.Errorf("clusters: id %q must be unique and match %s", cl.ID, clusterIDRe))
 		}
 		ids[cl.ID] = true
-		for _, e := range []string{cl.Endpoint, cl.STSEndpoint} {
+		eps := []string{cl.Endpoint}
+		if cl.STSEndpoint != cl.Endpoint {
+			eps = append(eps, cl.STSEndpoint)
+		}
+		for _, e := range eps {
 			u, err := url.Parse(e)
 			if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || (u.Path != "" && u.Path != "/") {
 				errs = append(errs, fmt.Errorf("clusters[%s]: endpoint %q must be scheme://host[:port]", cl.ID, e))

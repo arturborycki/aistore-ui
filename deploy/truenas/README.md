@@ -15,18 +15,18 @@ signs users in with their AIStor access keys.
 
    | Setting | What to put there |
    | --- | --- |
-   | `PUBLIC_URL` | The address people open, e.g. `https://truenas.local:30443`. Must be `https`. |
-   | `EXTRA_ORIGINS` | Other addresses of the same UI, comma separated, e.g. `https://192.168.1.110:30443`. Can be empty. |
-   | `AISTOR_ENDPOINT` | The AIStor **S3 API** (not the console), e.g. `http://192.168.1.110:30320`. |
+   | `PUBLIC_URL` | The address people open, e.g. `https://truenas.local:30443`. Must be `https`. Required. |
+   | `EXTRA_ORIGINS` | Other addresses of the same UI, comma separated, e.g. `https://<nas-ip>:30443`. Can be empty. |
+   | `AISTOR_ENDPOINT` | The AIStor **S3 API** (not the console), e.g. `http://<aistor-host>:<s3-port>`. Required. |
    | `SESSION_KEY` | The key from step 1. Changing it later signs everyone out. |
    | `ADMIN_USERS` | AIStor users who may see everyone's activity, comma separated. |
    | `SEMANTIC_ENABLED`, `SEMANTIC_BUCKET` | Semantic models. The bucket must exist with versioning enabled; set `SEMANTIC_ENABLED` to `"false"` to turn them off. |
 
 4. Save. When the app shows **Running**, open `PUBLIC_URL` in a browser.
 
-The app fails to start with "session key … must be 32 bytes" until
-`SESSION_KEY` is set. **Apps → aistor-catalog-ui → Logs** shows why the app
-stopped.
+The app does not start until `PUBLIC_URL`, `AISTOR_ENDPOINT` and
+`SESSION_KEY` are set. **Apps → aistor-catalog-ui → Logs** shows which
+setting is missing.
 
 ## The certificate
 

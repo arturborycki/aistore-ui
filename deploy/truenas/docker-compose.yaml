@@ -8,12 +8,15 @@
 # you to accept once.
 
 x-settings: &settings
-  # The address people type in the browser (the NAS name or IP and the port below).
-  PUBLIC_URL: "https://truenas.local:30443"
-  # Other addresses of the same UI, comma separated (e.g. the IP), or leave empty.
-  EXTRA_ORIGINS: "https://192.168.1.110:30443"
-  # The AIStor S3 API (not the console), as seen from the NAS.
-  AISTOR_ENDPOINT: "http://192.168.1.110:30320"
+  # Required. The address people type in the browser: the NAS name or IP and
+  # the port below, e.g. https://truenas.local:30443
+  PUBLIC_URL: ""
+  # Other addresses of the same UI, comma separated (e.g. https://<nas-ip>:30443),
+  # or leave empty.
+  EXTRA_ORIGINS: ""
+  # Required. The AIStor S3 API (not the console) as seen from the NAS,
+  # e.g. http://<aistor-host>:<s3-port>
+  AISTOR_ENDPOINT: ""
   AISTOR_NAME: "AIStor"
   # Encrypts sessions: 32 random bytes, e.g. from `openssl rand -base64 32`
   # in System > Shell. Changing it signs everyone out.

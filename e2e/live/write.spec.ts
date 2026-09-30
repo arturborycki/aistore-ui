@@ -6,7 +6,8 @@
  * snapshot features have history to work on. Everything is dropped (with
  * purge) at the end.
  *
- *   LIVE_ACCESS_KEY=… LIVE_SECRET_KEY=… LIVE_PYTHON=/path/to/venv/bin/python \
+ *   LIVE_ACCESS_KEY=… LIVE_SECRET_KEY=… LIVE_S3_ENDPOINT=http://<aistor-host>:<s3-port> \
+ *   LIVE_PYTHON=/path/to/venv/bin/python \
  *   npx playwright test -c live/playwright.config.ts write.spec.ts
  */
 import { execFileSync } from 'node:child_process'
@@ -29,6 +30,8 @@ const NSURL = `/c/${C}/wh/${WH}/ns/${NS}`
 const SHOTS = process.env.E2E_SCREENSHOTS
 const KEY = process.env.LIVE_ACCESS_KEY!
 const SECRET = process.env.LIVE_SECRET_KEY!
+
+if (!process.env.LIVE_S3_ENDPOINT) throw new Error('set LIVE_S3_ENDPOINT to the AIStor S3 API (used by live/append.py)')
 
 test.describe.configure({ mode: 'serial' })
 test.setTimeout(180_000)
