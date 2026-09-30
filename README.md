@@ -44,6 +44,8 @@ See [`docs/DESIGN.md`](docs/DESIGN.md) for the architecture and threat model, an
 
 Semantic models describe the data in business terms: dataset and field descriptions, synonyms, keys, relationships (joins), metrics (SQL) and instructions for AI agents. They are standard [Apache Ossie](https://github.com/apache/ossie) `0.2.0.dev0` documents.
 
+![Building a semantic model from a table: dataset details, relationships, catalog sync and table maintenance (2× speed)](docs/media/semantic-models-demo.gif)
+
 - **Built from the catalog.** Pick tables and each one becomes a dataset: columns become fields (struct leaves as `shipping.city`), types map to Ossie datatypes, column docs become descriptions, and the row key becomes the primary key.
 - **Where to edit them:**
   - a namespace's **Semantic models** tab;
