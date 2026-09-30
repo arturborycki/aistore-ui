@@ -35,15 +35,25 @@ func run() error {
 	cfgPath := flag.String("config", envOr("AISTOR_UI_CONFIG", "/etc/aistor-ui/config.yaml"), "path to the configuration file")
 	check := flag.Bool("check-config", false, "validate the configuration and exit")
 	showVersion := flag.Bool("version", false, "print the version and exit")
-	healthcheck := flag.String("healthcheck", "", "probe the given URL (e.g. http://127.0.0.1:8080/healthz) and exit 0 if healthy; for container health checks")
+	healthcheck := flag.String("healthcheck", "", "probe the given URL (e.g. http://127.0.0.1:8080/healthz), or \"auto\" for this server's own listener, and exit 0 if healthy; for container health checks")
 	flag.Parse()
 	if *showVersion {
 		fmt.Println(version)
 		return nil
 	}
 	if *healthcheck != "" {
+		target := *healthcheck
 		c := &http.Client{Timeout: 3 * time.Second}
-		resp, err := c.Get(*healthcheck)
+		if target == "auto" {
+			cfg, err := config.Load(*cfgPath)
+			if err != nil {
+				return err
+			}
+			if target, err = healthURL(cfg); err != nil {
+				return err
+			}
+		}
+		resp, err := c.Get(target)
 		if err != nil {
 			return err
 		}
@@ -121,12 +131,19 @@ func run() error {
 	if cfg.Server.MetricsListen != "" {
 		mux := http.NewServeMux()
 		mux.Handle("/metrics", srv.Metrics())
+		mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 		metricsSrv = &http.Server{Addr: cfg.Server.MetricsListen, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 		go func() {
 			if err := metricsSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				log.Error("metrics listener failed", "err", err)
 			}
 		}()
+	}
+
+	if cfg.Server.TLSSelfSigned {
+		if err := ensureSelfSigned(cfg, log); err != nil {
+			return err
+		}
 	}
 
 	errc := make(chan error, 1)

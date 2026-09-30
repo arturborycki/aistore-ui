@@ -1,0 +1,75 @@
+# AIStor Catalog UI as a TrueNAS app (TrueNAS 24.10 "Electric Eel" or later).
+#
+# Apps > Discover Apps > ⋮ > Install via YAML, name it "aistor-catalog-ui",
+# paste this file and edit the settings block below. See deploy/truenas/README.md.
+#
+# The UI serves HTTPS itself. Without a certificate of your own it creates a
+# self-signed one on first start (kept in the app's volume), which browsers ask
+# you to accept once.
+
+x-settings: &settings
+  # The address people type in the browser (the NAS name or IP and the port below).
+  PUBLIC_URL: "https://truenas.local:30443"
+  # Other addresses of the same UI, comma separated (e.g. the IP), or leave empty.
+  EXTRA_ORIGINS: "https://192.168.1.110:30443"
+  # The AIStor S3 API (not the console), as seen from the NAS.
+  AISTOR_ENDPOINT: "http://192.168.1.110:30320"
+  AISTOR_NAME: "AIStor"
+  # Encrypts sessions: 32 random bytes, e.g. from `openssl rand -base64 32`
+  # in System > Shell. Changing it signs everyone out.
+  SESSION_KEY: "CHANGE-ME"
+  # AIStor users who may see everyone's activity, comma separated.
+  ADMIN_USERS: "minioadmin"
+  # Semantic models (Apache Ossie): a bucket with versioning enabled.
+  SEMANTIC_ENABLED: "true"
+  SEMANTIC_BUCKET: "aistor-semantics"
+
+services:
+  catalog-ui:
+    image: ghcr.io/arturborycki/aistore-ui:latest
+    restart: unless-stopped
+    command: ["-config", "env:AISTOR_UI_CONFIG_YAML"]
+    environment:
+      <<: *settings
+      AISTOR_UI_CONFIG: "env:AISTOR_UI_CONFIG_YAML" # also used by the health check
+      # The configuration itself; $${...} is filled in from the settings above
+      # when the UI starts. Nothing below needs editing for a typical setup.
+      AISTOR_UI_CONFIG_YAML: |
+        server:
+          listen: ":8443"
+          metricsListen: ":9090"
+          publicUrl: "$${PUBLIC_URL}"
+          extraOrigins: [$${EXTRA_ORIGINS}]
+          tlsSelfSigned: true
+          tlsCertFile: /var/lib/aistor-ui/tls/cert.pem
+          tlsKeyFile: /var/lib/aistor-ui/tls/key.pem
+        session:
+          store: memory
+          keys:
+            - id: truenas
+              value: "$${SESSION_KEY}"
+        auth:
+          builtin: { enabled: true }
+          adminUsers: [$${ADMIN_USERS}]
+        clusters:
+          - id: aistor
+            name: "$${AISTOR_NAME}"
+            endpoint: "$${AISTOR_ENDPOINT}"
+            region: us-east-1
+            stsDuration: 12h
+        semantic:
+          enabled: $${SEMANTIC_ENABLED}
+          bucket: "$${SEMANTIC_BUCKET}"
+    ports:
+      - "30443:8443"
+    volumes:
+      - data:/var/lib/aistor-ui
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    deploy:
+      resources:
+        limits: { cpus: "2", memory: 1G }
+
+volumes:
+  data:

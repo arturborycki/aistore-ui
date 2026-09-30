@@ -33,7 +33,8 @@ COPY backend/ ./
 COPY --from=web /src/frontend/dist ./internal/web/dist
 RUN --mount=type=cache,target=/root/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/aistor-ui ./cmd/aistor-ui
+    go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/aistor-ui ./cmd/aistor-ui && \
+    mkdir -p /out/data
 
 # ---- runtime: distroless, non-root, no shell
 FROM ${RUNTIME_IMAGE}
@@ -44,9 +45,13 @@ LABEL org.opencontainers.image.title="AIStor Catalog UI" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.licenses="Apache-2.0"
 COPY --from=build /out/aistor-ui /usr/local/bin/aistor-ui
+# Writable state (e.g. a generated self-signed certificate); a volume mounted
+# here inherits the non-root ownership.
+COPY --from=build --chown=65532:65532 /out/data /var/lib/aistor-ui
 USER 65532:65532
-EXPOSE 8080 9090
+EXPOSE 8080 8443 9090
+# "auto" probes the metrics listener (or the main one when it is plain HTTP).
 HEALTHCHECK --interval=15s --timeout=4s --start-period=5s --retries=3 \
-    CMD ["/usr/local/bin/aistor-ui", "-healthcheck", "http://127.0.0.1:8080/healthz"]
+    CMD ["/usr/local/bin/aistor-ui", "-healthcheck", "auto"]
 ENTRYPOINT ["/usr/local/bin/aistor-ui"]
 CMD ["-config", "/etc/aistor-ui/config.yaml"]

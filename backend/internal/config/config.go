@@ -57,12 +57,16 @@ type SemanticServing struct {
 }
 
 type Server struct {
-	Listen        string   `yaml:"listen"`        // e.g. ":8080"
-	MetricsListen string   `yaml:"metricsListen"` // e.g. ":9090"; empty disables
-	PublicURL     string   `yaml:"publicUrl"`     // externally visible origin, e.g. https://catalog.example.com
-	TrustProxy    bool     `yaml:"trustProxy"`    // honour X-Forwarded-For for client IPs
-	TLSCertFile   string   `yaml:"tlsCertFile"`   // optional: terminate TLS in-process
-	TLSKeyFile    string   `yaml:"tlsKeyFile"`
+	Listen        string `yaml:"listen"`        // e.g. ":8080"
+	MetricsListen string `yaml:"metricsListen"` // e.g. ":9090"; empty disables
+	PublicURL     string `yaml:"publicUrl"`     // externally visible origin, e.g. https://catalog.example.com
+	TrustProxy    bool   `yaml:"trustProxy"`    // honour X-Forwarded-For for client IPs
+	TLSCertFile   string `yaml:"tlsCertFile"`   // optional: terminate TLS in-process
+	TLSKeyFile    string `yaml:"tlsKeyFile"`
+	// TLSSelfSigned creates a self-signed certificate at tlsCertFile/tlsKeyFile
+	// when none is there (or a previously generated one no longer fits), for
+	// appliances such as a NAS where no certificate is at hand.
+	TLSSelfSigned bool     `yaml:"tlsSelfSigned"`
 	ExtraOrigins  []string `yaml:"extraOrigins"` // additional origins allowed for state-changing requests
 
 	publicURL *url.URL
@@ -163,8 +167,17 @@ var (
 	bucketRe    = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$`)
 )
 
-// Load reads the configuration from path.
+// Load reads the configuration from path, or from an environment variable
+// when path is "env:NAME" (for platforms that cannot mount a file into a
+// read-only container, such as TrueNAS apps).
 func Load(path string) (*Config, error) {
+	if name, ok := strings.CutPrefix(path, "env:"); ok {
+		raw := os.Getenv(name)
+		if strings.TrimSpace(raw) == "" {
+			return nil, fmt.Errorf("read config: environment variable %s is empty", name)
+		}
+		return Parse([]byte(raw))
+	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
@@ -360,6 +373,12 @@ func (c *Config) validate() error {
 				errs = append(errs, errors.New("server.publicUrl must use https unless it is a loopback address"))
 			}
 		}
+	}
+	if (c.Server.TLSCertFile == "") != (c.Server.TLSKeyFile == "") {
+		errs = append(errs, errors.New("server.tlsCertFile and server.tlsKeyFile must be set together"))
+	}
+	if c.Server.TLSSelfSigned && c.Server.TLSCertFile == "" {
+		errs = append(errs, errors.New("server.tlsSelfSigned needs tlsCertFile and tlsKeyFile (where to keep the certificate)"))
 	}
 	if len(c.Session.Keys) == 0 {
 		errs = append(errs, errors.New("session.keys: at least one encryption key is required"))

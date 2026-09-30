@@ -123,6 +123,10 @@ Every device must trust mkcert's CA:
 
 People must open one of the names in `publicUrl` / `extraOrigins`; sign-in from any other origin is rejected. For certificates that every device already trusts, use a real certificate for a DNS name instead of mkcert.
 
+## TrueNAS app
+
+On TrueNAS 24.10 or later, install the UI as a custom app: **Apps → Discover Apps → ⋮ → Install via YAML** with [`deploy/truenas/docker-compose.yaml`](deploy/truenas/docker-compose.yaml). Edit the settings block at the top (address, AIStor endpoint, session key). The UI serves HTTPS on port 30443 with a self-signed certificate that it creates on first start and keeps. See [deploy/truenas/README.md](deploy/truenas/README.md).
+
 ## Kubernetes
 
 ### Helm
@@ -161,11 +165,13 @@ The base images are build args (`NODE_IMAGE`, `GO_IMAGE`, `RUNTIME_IMAGE`), so y
 
 ## Configuration
 
-The server reads a YAML file (`-config`, or `AISTOR_UI_CONFIG`). `${VAR}` references are expanded from the environment, and any secret can be supplied as a `*File` path instead. Start from `deploy/compose/config.yaml` or `deploy/kubernetes/configmap.yaml`.
+The server reads a YAML file (`-config`, or `AISTOR_UI_CONFIG`), or YAML held in an environment variable with `-config env:NAME` (for platforms that cannot mount a file into a read-only container). `${VAR}` references are expanded from the environment, and any secret can be supplied as a `*File` path instead. Start from `deploy/compose/config.yaml` or `deploy/kubernetes/configmap.yaml`.
 
 | Key | Meaning |
 |---|---|
 | `server.publicUrl` | External origin. Must be https unless it is loopback. Used for cookies, CSRF origin checks and OIDC redirects |
+| `server.tlsCertFile` / `tlsKeyFile` | Serve HTTPS in-process with this certificate |
+| `server.tlsSelfSigned` | Create a self-signed certificate at those paths when none is there. The UI replaces only certificates it created itself, and only when they are about to expire or no longer cover `publicUrl` / `extraOrigins` |
 | `server.trustProxy` | Take the client IP from `X-Forwarded-For` (for rate limits and audit) |
 | `session.store` | `memory` (single replica) or `redis://` / `rediss://` URL |
 | `session.keys[]` | AES-256 keys (`value` or `file`). The first key encrypts; all keys decrypt, which allows rotation |
@@ -183,7 +189,7 @@ The server reads a YAML file (`-config`, or `AISTOR_UI_CONFIG`). `${VAR}` refere
 | `audit.webhookUrl` | POST each audit record as JSON. Records are always logged to stdout as well |
 | `audit.webhookSecret[File]` | Sign webhook deliveries: `X-Aistor-Audit-Timestamp` (unix seconds) and `X-Aistor-Audit-Signature: sha256=<hex HMAC-SHA256(secret, timestamp + "." + body)>`. Receivers should reject timestamps older than a few minutes |
 
-Operational endpoints: `/healthz`, `/readyz` (checks the session store), and `/metrics` on `server.metricsListen`.
+Operational endpoints: `/healthz`, `/readyz` (checks the session store), and `/metrics` and `/healthz` on `server.metricsListen`. The image's health check runs `aistor-ui -healthcheck auto`, which probes the metrics listener (or the main listener when it serves plain HTTP).
 
 > **LDAP and access-key sessions** cannot silently renew their AIStor credentials, because the password is not kept. When the credentials expire, the UI asks for the password again (no sign-out, nothing lost). Set `stsDuration` close to `session.absoluteTimeout` to make that rare. OIDC sessions renew through the refresh token.
 
