@@ -479,12 +479,15 @@ func createTable(wh string, ns []string, body map[string]any) (*tableState, erro
 		delete(props, "format-version")
 	}
 	// partition-spec may be an object {fields} (Iceberg REST) or a bare list (AIStor docs).
-	var specFields []any
+	specFields := []any{} // never null: Iceberg serializes an unpartitioned spec as fields: []
 	switch ps := body["partition-spec"].(type) {
 	case map[string]any:
 		specFields = arr(ps["fields"])
 	case []any:
 		specFields = ps
+	}
+	if specFields == nil {
+		specFields = []any{}
 	}
 	lastPart := int64(999)
 	for i, f := range specFields {

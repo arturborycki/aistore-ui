@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 
@@ -220,6 +221,16 @@ func TestSemanticModelLifecycle(t *testing.T) {
 		t.Fatalf("after delete: %d %v", resp.StatusCode, out)
 	}
 
+	// Import an existing Ossie document (the upstream TPC-DS example).
+	raw, _ := json.Marshal(map[string]any{"name": "tpcds", "raw": tpcdsYAML(t)})
+	if resp, out := alice.do("POST", base, string(raw)); resp.StatusCode != 201 {
+		t.Fatalf("import: %d %v", resp.StatusCode, out)
+	}
+	bad2, _ := json.Marshal(map[string]any{"name": "broken", "raw": "version: \"0.2.0.dev0\"\nname: x\n"})
+	if resp, out := alice.do("POST", base, string(bad2)); resp.StatusCode != 422 || out["problems"] == nil {
+		t.Fatalf("invalid import: %d %v", resp.StatusCode, out)
+	}
+
 	// Every change is audited.
 	_, act := alice.do("GET", "/api/activity?q="+url.QueryEscape("SemanticModel"), "")
 	if act["total"].(float64) < 3 {
@@ -241,6 +252,14 @@ func TestSemanticDisabledAndMissingBucket(t *testing.T) {
 	if resp, out := b2.do("GET", "/api/c/dev/semantic/wh/xyz/ns/y/models", ""); resp.StatusCode != 503 || errType(out) != "SemanticStoreUnavailable" {
 		t.Fatalf("missing bucket: %d %v", resp.StatusCode, out)
 	}
+}
+
+func tpcdsYAML(t *testing.T) string {
+	b, err := os.ReadFile("../semantic/testdata/tpcds_semantic_model.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }
 
 func toJSON(v any) string { b, _ := json.Marshal(v); return string(b) }

@@ -8,6 +8,8 @@ import { useAuth } from '@/auth/AuthContext'
 import { EntityIcon } from '@/components/ui/entity-icon'
 import { Kbd } from '@/components/ui/kbd'
 import { searchCatalog, type SearchHit } from '@/lib/catalog'
+import { ossie } from '@/lib/ossie'
+import { useSemanticEnabled } from '@/features/semantic/ModelsTab'
 import type { Namespace } from '@/lib/namespace'
 import { useTheme } from './theme'
 import { paths } from './paths'
@@ -79,6 +81,14 @@ export function CommandPalette({ cluster, open, onOpenChange }: { cluster: strin
     }
     return { warehouses: whs, namespaces: nss, leaves }
   }, [open, qc, cluster])
+
+  const semanticOn = useSemanticEnabled()
+  const semantic = useQuery({
+    queryKey: ['semantic-search', cluster, term],
+    queryFn: ({ signal }) => ossie.search(cluster, term, signal),
+    enabled: open && semanticOn && term.length >= 2,
+    staleTime: 30_000,
+  })
 
   const loadedKeys = useMemo(() => {
     const k = new Set<string>()
@@ -209,6 +219,32 @@ export function CommandPalette({ cluster, open, onOpenChange }: { cluster: strin
                       {remote.data.skipped > 0 && `${remote.data.skipped} location${remote.data.skipped === 1 ? ' was' : 's were'} skipped because you may not list ${remote.data.skipped === 1 ? 'it' : 'them'}.`}
                     </div>
                   )}
+                </Command.Group>
+              )}
+              {term.length >= 2 && (semantic.data?.results.length ?? 0) > 0 && (
+                <Command.Group heading="Semantic models" className={groupCls} forceMount>
+                  {semantic.data!.results.map((h) => {
+                    const tab = h.kind === 'metric' ? 'metrics' : h.kind === 'relationship' ? 'relationships' : h.kind === 'model' ? undefined : 'datasets'
+                    return (
+                      <Command.Item
+                        key={`${h.kind}:${h.warehouse}/${h.namespace.join('.')}/${h.model}/${h.dataset ?? ''}/${h.name}`}
+                        value={`semantic ${h.kind} ${h.model} ${h.dataset ?? ''} ${h.name} ${h.match ?? ''} ${term}`}
+                        className={itemCls}
+                        onSelect={() => go(paths.model(cluster, h.warehouse, h.namespace, h.model, tab))}
+                      >
+                        <EntityIcon kind="model" />
+                        <span className="min-w-0 truncate">
+                          <span className="font-mono text-[12.5px]">
+                            {h.kind === 'model' ? h.name : h.kind === 'field' ? `${h.dataset}.${h.name}` : h.name}
+                          </span>
+                          <span className="ml-2 text-[11.5px] text-subtle">
+                            {h.kind} in {h.model}
+                            {h.match ? ` · “${h.match}”` : ''}
+                          </span>
+                        </span>
+                      </Command.Item>
+                    )
+                  })}
                 </Command.Group>
               )}
               <Command.Group heading="Preferences" className={groupCls}>

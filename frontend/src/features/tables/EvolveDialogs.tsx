@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { useParams } from 'react-router'
 import { ArrowUpCircle, GitBranch, History, KeyRound, Tag } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogBody, DialogContent, DialogFooter } from '@/components/ui/dialog'
@@ -36,6 +38,9 @@ import {
 import type { Int64 } from '@/lib/json'
 import { droppedIds, fieldFromIceberg, identifierCandidates, toIcebergFields, validateFields } from '@/lib/schemaModel'
 import { CommitBar, type TableCommit } from './CommitBar'
+import { useCluster } from '@/layout/useCluster'
+import { ossie, semanticKeys } from '@/lib/ossie'
+import { useSemanticEnabled } from '@/features/semantic/ModelsTab'
 import { PartitionFieldsEditor, partitionProblems, SortFieldsEditor, sourceColumns } from './LayoutEditors'
 import { SchemaEditor, withoutDropped, type DraftField } from './SchemaEditor'
 
@@ -84,6 +89,7 @@ export function EvolveSchemaDialog({ md, id, commit, open, onOpenChange }: Base)
   const problems = validateFields(kept, { evolution: true, formatVersion: md['format-version'] })
   const built = useMemo(() => toIcebergFields(kept, md['last-column-id'] + 1), [kept, md])
   const changes = useMemo(() => diffSchemas(cur, { type: 'struct', fields: built.fields }), [cur, built])
+  const semanticImpact = useSemanticImpact(md, open, changes)
   // Only existing columns can be "reordered"; new ones are additions.
   const candidates = useMemo(() => identifierCandidates(built.fields), [built])
   const identsChanged = [...idents].sort().join(',') !== [...curIdents].sort().join(',')
@@ -170,6 +176,17 @@ export function EvolveSchemaDialog({ md, id, commit, open, onOpenChange }: Base)
               </ul>
             )}
           </div>
+          {semanticImpact.length > 0 && (
+            <div role="status" className="rounded-[var(--radius-card)] border border-info/40 bg-info-subtle px-3 py-2.5 text-[12.5px]">
+              <p className="mb-1 font-medium text-info">Used in semantic models</p>
+              <ul className="flex flex-col gap-0.5">
+                {semanticImpact.map((s) => (
+                  <li key={s}>{s}</li>
+                ))}
+              </ul>
+              <p className="mt-1 text-[12px] text-muted">Renames are followed automatically by field ID. For dropped columns, open the model's Catalog sync tab after applying.</p>
+            </div>
+          )}
           {[...blocked, ...identProblems].map((b) => (
             <InlineError key={b} error={new Error(b)} />
           ))}
@@ -180,6 +197,26 @@ export function EvolveSchemaDialog({ md, id, commit, open, onOpenChange }: Base)
       </DialogContent>
     </Dialog>
   )
+}
+
+/** Semantic model fields that read a column being renamed or dropped. */
+function useSemanticImpact(md: TableMetadata, open: boolean, changes: FieldChange[]): string[] {
+  const cluster = useCluster()
+  const { wh } = useParams()
+  const enabled = useSemanticEnabled() && open && !!wh
+  const uuid = md['table-uuid']
+  const usage = useQuery({ queryKey: semanticKeys.usage(cluster, wh ?? '', uuid), queryFn: () => ossie.usage(cluster, wh!, { table: uuid }), enabled, staleTime: 60_000 })
+  const out: string[] = []
+  for (const c of changes) {
+    const hit = c.kind === 'removed' ? { id: c.field.id, verb: 'Dropping', path: c.field.path } : c.kind === 'renamed' ? { id: c.to.id, verb: 'Renaming', path: c.from.path } : null
+    if (!hit) continue
+    for (const u of usage.data?.usage ?? []) {
+      for (const f of u.fields) {
+        if (f.fieldId === hit.id) out.push(`${hit.verb} ${hit.path.join('.')} affects ${u.model}: ${u.dataset}.${f.field}`)
+      }
+    }
+  }
+  return out
 }
 
 // ---------------------------------------------------------------- partitioning

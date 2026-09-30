@@ -29,6 +29,7 @@ export interface Me {
   /** earliest expiry of the AIStor credentials of a password session */
   credentialsExpireAt?: string | null
   sessionHandle?: string
+  features?: { semantic?: { enabled: boolean; bucket?: string; serving?: boolean } }
   version: string
 }
 

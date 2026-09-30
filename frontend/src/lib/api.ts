@@ -21,8 +21,10 @@ export class ApiError extends Error {
   readonly resource?: string
   readonly operation?: string
   readonly requestId?: string
+  /** the parsed error response (e.g. validation problems) */
+  readonly body?: Record<string, unknown>
 
-  constructor(init: { status: number; type: string; message: string; headers?: Headers }) {
+  constructor(init: { status: number; type: string; message: string; headers?: Headers; body?: Record<string, unknown> }) {
     super(init.message)
     this.name = 'ApiError'
     this.status = init.status
@@ -31,6 +33,7 @@ export class ApiError extends Error {
     this.resource = init.headers?.get('X-Aistor-Resource') ?? undefined
     this.operation = init.headers?.get('X-Aistor-Operation') ?? undefined
     this.requestId = init.headers?.get('X-Request-Id') ?? undefined
+    this.body = init.body
   }
 
   get isAccessDenied() {
@@ -112,6 +115,10 @@ export interface RequestOptions {
   signal?: AbortSignal
   /** a poll that must not keep an idle session alive */
   background?: boolean
+  /** extra request headers (e.g. If-Match) */
+  headers?: Record<string, string>
+  /** return the response body as text instead of parsing JSON */
+  text?: boolean
   /** internal: set on the retry after step-up */
   _retried?: boolean
 }
@@ -119,11 +126,12 @@ export interface RequestOptions {
 const SAFE = new Set(['GET', 'HEAD'])
 
 export async function request<T>(method: string, path: string, opts: RequestOptions = {}): Promise<ApiResponse<T>> {
-  const headers: Record<string, string> = { Accept: 'application/json' }
+  const headers: Record<string, string> = { Accept: opts.text ? '*/*' : 'application/json' }
   if (opts.body !== undefined) headers['Content-Type'] = 'application/json'
   if (!SAFE.has(method) && csrfToken) headers['X-CSRF-Token'] = csrfToken
   if (opts.background) headers['X-Aistor-Background'] = '1'
   else lastActivity = Date.now()
+  Object.assign(headers, opts.headers)
 
   let resp: Response
   try {
@@ -143,21 +151,24 @@ export async function request<T>(method: string, path: string, opts: RequestOpti
 
   if (resp.ok) {
     const text = resp.status === 204 ? '' : await resp.text()
+    if (opts.text) return { data: text as T, headers: resp.headers, status: resp.status }
     return { data: (text ? parseJSON<T>(text) : undefined) as T, headers: resp.headers, status: resp.status }
   }
 
   let type = 'HttpError'
   let message = resp.statusText || `Request failed (${resp.status})`
+  let body: Record<string, unknown> | undefined
   try {
-    const body = await resp.json()
-    if (body?.error) {
-      type = body.error.type || type
-      message = body.error.message || message
+    body = await resp.json()
+    const e = body?.error as { type?: string; message?: string } | undefined
+    if (e && typeof e === 'object') {
+      type = e.type || type
+      message = e.message || message
     }
   } catch {
     /* non-JSON error body */
   }
-  const err = new ApiError({ status: resp.status, type, message, headers: resp.headers })
+  const err = new ApiError({ status: resp.status, type, message, headers: resp.headers, body })
 
   if ((err.type === 'StepUpRequired' || err.type === 'CredentialsExpired') && !opts._retried && !opts.background) {
     const ok = await reauthenticate(err.type === 'StepUpRequired' ? 'step-up' : 'credentials')
@@ -170,6 +181,7 @@ export async function request<T>(method: string, path: string, opts: RequestOpti
 }
 
 export const api = {
+  request: <T>(method: string, path: string, opts?: RequestOptions) => request<T>(method, path, opts),
   get: <T>(path: string, opts?: RequestOptions) => request<T>('GET', path, opts),
   post: <T>(path: string, body?: unknown, opts?: RequestOptions) => request<T>('POST', path, { ...opts, body }),
   put: <T>(path: string, body?: unknown, opts?: RequestOptions) => request<T>('PUT', path, { ...opts, body }),

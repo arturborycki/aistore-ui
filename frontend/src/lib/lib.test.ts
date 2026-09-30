@@ -66,3 +66,19 @@ describe('activity export', () => {
     expect(row.startsWith('2026-01-01T00:00:00Z,"a,b",catalog,"\'=HYPERLINK(""x"")",x,c,"line\nbreak"')).toBe(true)
   })
 })
+
+describe('diff', () => {
+  it('matches prefix/suffix and folds context', async () => {
+    const { diffLines, foldDiff } = await import('./diff')
+    const a = Array.from({ length: 20 }, (_, i) => `l${i}`).join('\n')
+    const b = a.replace('l10', 'L10')
+    const d = diffLines(a, b)
+    expect(d.filter((x) => x.kind !== 'same').map((x) => `${x.kind}:${x.text}`)).toEqual(['del:l10', 'add:L10'])
+    expect(d.find((x) => x.text === 'l19')).toEqual({ kind: 'same', text: 'l19', a: 20, b: 20 })
+    const f = foldDiff(d, 2)
+    expect(f[0]).toEqual({ kind: 'fold', count: 8 })
+    expect(f[f.length - 1]).toEqual({ kind: 'fold', count: 7 })
+    // Huge middles fall back without allocating the full table.
+    expect(diffLines('a\nb\nc', 'x\ny\nz', 4).map((x) => x.kind)).toEqual(['del', 'del', 'del', 'add', 'add', 'add'])
+  })
+})

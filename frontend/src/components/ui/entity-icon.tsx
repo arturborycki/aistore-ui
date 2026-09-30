@@ -1,7 +1,7 @@
-import { Eye, Folder, FolderOpen, Table2, Warehouse } from 'lucide-react'
+import { BookOpenText, Eye, Folder, FolderOpen, Table2, Warehouse } from 'lucide-react'
 import { cn } from '@/lib/cn'
 
-export type EntityKind = 'warehouse' | 'namespace' | 'table' | 'view'
+export type EntityKind = 'warehouse' | 'namespace' | 'table' | 'view' | 'model'
 
 export function EntityIcon({ kind, open, className }: { kind: EntityKind; open?: boolean; className?: string }) {
   const cls = cn('size-4 shrink-0', className)
@@ -14,6 +14,8 @@ export function EntityIcon({ kind, open, className }: { kind: EntityKind; open?:
       return <Table2 className={cn(cls, 'text-ent-table')} aria-hidden />
     case 'view':
       return <Eye className={cn(cls, 'text-ent-view')} aria-hidden />
+    case 'model':
+      return <BookOpenText className={cn(cls, 'text-ent-model')} aria-hidden />
   }
 }
 
@@ -24,6 +26,7 @@ export function EntityBadgeIcon({ kind }: { kind: EntityKind }) {
     namespace: 'bg-ent-namespace/10',
     table: 'bg-ent-table/10',
     view: 'bg-ent-view/10',
+    model: 'bg-ent-model/10',
   }[kind]
   return (
     <span className={cn('flex size-9 shrink-0 items-center justify-center rounded-[var(--radius-card)]', bg)}>

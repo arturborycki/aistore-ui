@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useParams, useSearchParams } from 'react-router'
 import {
   ArrowUpCircle,
+  BookOpenText,
   Check,
   ChevronDown,
   Clock,
@@ -57,6 +58,8 @@ import { PreviewTab } from './PreviewTab'
 import { SchemaTree } from './SchemaTree'
 import { SettingsTab } from './SettingsTab'
 import { SnapshotsTab } from './SnapshotsTab'
+import { SemanticsTab } from '@/features/semantic/SemanticsTab'
+import { useSemanticEnabled } from '@/features/semantic/ModelsTab'
 
 function OverviewTab({ data, wh, view }: { data: LoadTableResult; wh: string; view: TableView }) {
   const md = data.metadata
@@ -77,10 +80,10 @@ function OverviewTab({ data, wh, view }: { data: LoadTableResult; wh: string; vi
               { label: 'Location', value: <CopyText value={md.location} /> },
               { label: 'Format version', value: `v${md['format-version']}` },
               { label: 'Last updated', value: formatDateTime(md['last-updated-ms']) },
-              { label: 'Partitioning', value: spec?.fields.length ? <span className="font-mono text-[12px]">{spec.fields.map((f) => transformLabel(f.transform, names.get(f['source-id']) ?? '?')).join(', ')}</span> : 'Unpartitioned' },
+              { label: 'Partitioning', value: spec?.fields?.length ? <span className="font-mono text-[12px]">{spec.fields.map((f) => transformLabel(f.transform, names.get(f['source-id']) ?? '?')).join(', ')}</span> : 'Unpartitioned' },
               {
                 label: 'Sort order',
-                value: order?.fields.length ? <span className="font-mono text-[12px]">{order.fields.map((f) => `${transformLabel(f.transform, names.get(f['source-id']) ?? '?')} ${f.direction}`).join(', ')}</span> : 'Unsorted',
+                value: order?.fields?.length ? <span className="font-mono text-[12px]">{order.fields.map((f) => `${transformLabel(f.transform, names.get(f['source-id']) ?? '?')} ${f.direction}`).join(', ')}</span> : 'Unsorted',
               },
               { label: 'File format', value: md.properties?.['write.format.default'] ?? 'parquet' },
             ]}
@@ -189,6 +192,7 @@ export function TablePage() {
     | null
   const [dialog, setDialog] = useState<DialogState>(null)
   const commit = useTableCommit(cluster, wh, ns, table)
+  const semantic = useSemanticEnabled()
   const identifier = useMemo(() => ({ namespace: ns, name: table }), [ns, table])
 
   const key = qk.table(cluster, wh, ns, table)
@@ -207,7 +211,7 @@ export function TablePage() {
         q.data && (
           <>
             <Badge tone="accent">Iceberg v{q.data.metadata['format-version']}</Badge>
-            {(q.data.metadata['partition-specs'].find((s) => s['spec-id'] === q.data!.metadata['default-spec-id'])?.fields.length ?? 0) > 0 ? (
+            {(q.data.metadata['partition-specs'].find((s) => s['spec-id'] === q.data!.metadata['default-spec-id'])?.fields?.length ?? 0) > 0 ? (
               <Badge>
                 <Layers className="size-3" /> Partitioned
               </Badge>
@@ -322,6 +326,7 @@ export function TablePage() {
           <TabsTrigger value="schema" icon={<ListTree />} count={(view.schema ?? schema).fields.length}>Schema</TabsTrigger>
           <TabsTrigger value="partitions" icon={<Layers />}>Partitioning</TabsTrigger>
           <TabsTrigger value="snapshots" icon={<GitCommitHorizontal />} count={md.snapshots?.length ?? 0}>Snapshots</TabsTrigger>
+          {semantic && <TabsTrigger value="semantics" icon={<BookOpenText />}>Semantics</TabsTrigger>}
           <TabsTrigger value="maintenance" icon={<Wrench />}>Maintenance</TabsTrigger>
           <TabsTrigger value="properties" icon={<SlidersHorizontal />} count={Object.keys(md.properties ?? {}).length}>Properties</TabsTrigger>
           <TabsTrigger value="settings" icon={<Lock />}>Encryption & tags</TabsTrigger>
@@ -359,6 +364,11 @@ export function TablePage() {
             }}
           />
         </TabsContent>
+        {semantic && (
+          <TabsContent value="semantics">
+            <SemanticsTab cluster={cluster} wh={wh} ns={ns} table={table} uuid={md['table-uuid']} />
+          </TabsContent>
+        )}
         <TabsContent value="maintenance">
           <MaintenanceTab cluster={cluster} wh={wh} ns={ns} table={table} />
         </TabsContent>

@@ -5,7 +5,7 @@ export function watchConsole(page: Page) {
   const problems: string[] = []
   page.on('console', (m) => {
     const t = m.text()
-    if (m.type() === 'error' && !/Failed to load resource: the server responded with a status of (401|403|404|409)/.test(t)) problems.push(t)
+    if (m.type() === 'error' && !/Failed to load resource: the server responded with a status of (401|403|404|409|422)/.test(t)) problems.push(t)
   })
   page.on('pageerror', (e) => problems.push(e.message))
   return () => expect(problems, problems.join('\n')).toEqual([])

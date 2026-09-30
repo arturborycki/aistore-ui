@@ -42,6 +42,7 @@
   --entity-namespace: #d97706;
   --entity-table: #2563eb;
   --entity-view: #0d9488;
+  --entity-model: #db2777;
 
   --brand: #c72c48;
   --ring: #93c5fd;
@@ -80,6 +81,7 @@
   --entity-namespace: #fbbf24;
   --entity-table: #60a5fa;
   --entity-view: #2dd4bf;
+  --entity-model: #f472b6;
 
   --ring: #1d4ed8;
   --shadow-pop: 0 0 0 1px #27272a, 0 8px 24px rgba(0, 0, 0, 0.5);
@@ -115,6 +117,7 @@
   --color-info-subtle: var(--info-subtle);
   --color-ent-warehouse: var(--entity-warehouse);
   --color-ent-namespace: var(--entity-namespace);
+  --color-ent-model: var(--entity-model);
   --color-ent-table: var(--entity-table);
   --color-ent-view: var(--entity-view);
   --color-brand: var(--brand);

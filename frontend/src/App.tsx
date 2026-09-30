@@ -19,6 +19,7 @@ const SessionsPage = named(() => import('@/features/sessions/SessionsPage'), 'Se
 const TablePage = named(() => import('@/features/tables/TablePage'), 'TablePage')
 const ViewPage = named(() => import('@/features/views/ViewPage'), 'ViewPage')
 const CreateTablePage = named(() => import('@/features/tables/CreateTablePage'), 'CreateTablePage')
+const ModelPage = named(() => import('@/features/semantic/ModelPage'), 'ModelPage')
 
 function HomeRedirect() {
   const me = useMe()
@@ -68,6 +69,7 @@ export function App() {
         <Route path="/c/:cluster/wh/:wh/ns/:ns/new-table" element={page(<CreateTablePage />)} />
         <Route path="/c/:cluster/wh/:wh/ns/:ns/t/:table" element={page(<TablePage />)} />
         <Route path="/c/:cluster/wh/:wh/ns/:ns/v/:view" element={page(<ViewPage />)} />
+        <Route path="/c/:cluster/wh/:wh/ns/:ns/m/:model" element={page(<ModelPage />)} />
         <Route path="/c/:cluster/activity" element={page(<ActivityPage />)} />
         <Route path="/c/:cluster/sessions" element={page(<SessionsPage />)} />
         <Route path="*" element={<NotFound />} />

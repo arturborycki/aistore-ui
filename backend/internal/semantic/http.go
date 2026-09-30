@@ -47,6 +47,8 @@ func (a *API) Mount(r chi.Router) {
 	r.Route("/semantic", func(r chi.Router) {
 		r.Get("/search", a.handleSearch)
 		r.Post("/validate", a.handleValidate)
+		r.Post("/parse", a.handleParse)
+		r.Post("/render", a.handleRender)
 		r.Post("/generate/wh/{wh}", a.handleGenerate)
 		r.Get("/wh/{wh}/usage", a.handleUsage)
 		r.Get("/wh/{wh}/ns/{ns}/models", a.handleList)
@@ -373,7 +375,8 @@ func (a *API) handleCreate(w http.ResponseWriter, req *http.Request) {
 		Name        string     `json:"name"`
 		Description string     `json:"description"`
 		Tables      []tableRef `json:"tables"`
-		Model       *Model     `json:"model"` // an imported document
+		Model       *Model     `json:"model"` // an imported document (JSON)
+		Raw         string     `json:"raw"`   // an imported document (YAML or JSON text)
 	}
 	if err := json.NewDecoder(io.LimitReader(req.Body, int64(a.Cfg.MaxModelBytes)*2)).Decode(&body); err != nil {
 		a.writeErr(w, badRequest("invalid request body"))
@@ -385,6 +388,18 @@ func (a *API) handleCreate(w http.ResponseWriter, req *http.Request) {
 	}
 	t.model = body.Name
 	m := body.Model
+	if body.Raw != "" {
+		parsed, ps, err := Parse([]byte(body.Raw), a.limits())
+		if err != nil {
+			a.writeErr(w, err)
+			return
+		}
+		if len(ps) > 0 {
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": map[string]any{"type": "InvalidModel", "message": "the document does not conform to the Ossie schema", "code": 422}, "problems": ps})
+			return
+		}
+		m = parsed
+	}
 	if m == nil {
 		m = &Model{Version: SpecVersion, Name: body.Name, Description: body.Description}
 	}
@@ -530,6 +545,54 @@ func (a *API) handleValidate(w http.ResponseWriter, req *http.Request) {
 		ps = []Problem{}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"problems": ps})
+}
+
+// handleParse turns YAML or JSON text into a model (for the YAML editor),
+// reporting schema and structural problems.
+func (a *API) handleParse(w http.ResponseWriter, req *http.Request) {
+	var body struct {
+		Raw string `json:"raw"`
+	}
+	if err := json.NewDecoder(io.LimitReader(req.Body, int64(a.Cfg.MaxModelBytes)*2)).Decode(&body); err != nil {
+		a.writeErr(w, badRequest("send {raw: <YAML or JSON text>}"))
+		return
+	}
+	m, ps, err := Parse([]byte(body.Raw), a.limits())
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"model": nil, "problems": []Problem{errorAt("", "%s", strings.TrimPrefix(err.Error(), ErrInvalid.Error()+": "))}})
+		return
+	}
+	if len(ps) == 0 {
+		ps = Validate(m)
+	}
+	if ps == nil {
+		ps = []Problem{}
+	}
+	var out *Model
+	if !HasErrors(ps) || m != nil {
+		out = m
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"model": out, "problems": ps})
+}
+
+// handleRender returns the canonical YAML of a (draft) model, for previews
+// and diffs that must match what will be stored.
+func (a *API) handleRender(w http.ResponseWriter, req *http.Request) {
+	var body struct {
+		Model *Model `json:"model"`
+	}
+	if err := json.NewDecoder(io.LimitReader(req.Body, int64(a.Cfg.MaxModelBytes)*2)).Decode(&body); err != nil || body.Model == nil {
+		a.writeErr(w, badRequest("send {model: {...}}"))
+		return
+	}
+	b, err := MarshalYAML(body.Model)
+	if err != nil {
+		a.writeErr(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(b)
 }
 
 type datasetStatus struct {
