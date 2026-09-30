@@ -5,7 +5,8 @@ kind: NetworkPolicy
 metadata:
   name: aistor-catalog-ui
 spec:
-  podSelector: {}
+  podSelector:
+    matchLabels: { app.kubernetes.io/component: ui }
   policyTypes: [Ingress, Egress]
   ingress:
     - ports: [{ port: 8080 }, { port: 9090 }]

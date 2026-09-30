@@ -34,6 +34,26 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: Install kubeconform
+        run: curl -sSfL https://github.com/yannh/kubeconform/releases/download/v0.7.0/kubeconform-linux-amd64.tar.gz | tar xz -C /usr/local/bin kubeconform
+      - run: helm lint --strict deploy/helm/aistor-catalog-ui
+      - name: Validate Helm chart (default, ingress + monitoring, external Redis)
+        run: |
+          c=deploy/helm/aistor-catalog-ui
+          helm template t $c | kubeconform -strict -summary
+          helm template t $c --set ingress.enabled=true --set metrics.serviceMonitor.enabled=true | kubeconform -strict -summary -skip ServiceMonitor
+          helm template t $c --set redis.enabled=false --set secrets.existingSecret=s | kubeconform -strict -summary
+      - name: Validate kustomize (base and with the Redis component)
+        run: |
+          kubectl kustomize deploy/kubernetes | kubeconform -strict -summary
+          cp -r deploy/kubernetes /tmp/k && printf 'components:\n  - components/redis\n' >> /tmp/k/kustomization.yaml
+          kubectl kustomize /tmp/k | kubeconform -strict -summary
+
   e2e:
     runs-on: ubuntu-latest
     needs: [backend, frontend]

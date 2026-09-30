@@ -12,7 +12,7 @@ See [`docs/DESIGN.md`](docs/DESIGN.md) for the architecture and threat model, an
 
 ## Status
 
-**Phases 0–3 are complete.**
+**Phases 0–3 are complete**, plus the hardening round below.
 
 - **Sign-in and security:** SSO (OIDC), LDAP and access-key sign-in; encrypted sessions; step-up re-authentication for destructive actions; a typed allow-list covering every AIStor Tables endpoint.
 - **Browse:** overview, warehouses, nested namespaces, table and view pages (preview, schema history, partitioning, snapshots, maintenance, metadata, access helper), explorer tree, command palette, activity log.
@@ -26,11 +26,18 @@ See [`docs/DESIGN.md`](docs/DESIGN.md) for the architecture and threat model, an
 - **Evolve and operate:**
   - **Schema evolution:** add (including nested), rename, widen (only allowed promotions), make optional, document, reorder and drop columns. Dropping a column the partition spec, sort order or row key still uses is blocked. A diff preview is shown before committing.
   - **Partition and sort-order evolution:** partition field IDs are reused as Iceberg requires, and v1 tables keep removed fields as `void`.
-  - **Snapshots:** roll back `main`, create tags and branches with retention settings, edit retention, remove references.
+  - **Snapshots:** roll back `main`, create tags and branches with retention settings, edit retention, remove references, and **expire** unreferenced snapshots (`remove-snapshots`).
+  - **Time travel:** view a table as of a branch, tag or snapshot (`?at=`). Tags and snapshots show the schema they were written with; branches use the current schema, as Iceberg readers do. Data preview always reads the current snapshot.
+  - **Row key:** choose identifier fields while evolving a schema. Only columns Iceberg allows are offered: required primitives other than float/double, not inside lists, maps or optional structs.
   - **Format upgrade** (v2 → v3).
 - **Safe concurrent editing:** every commit carries Iceberg requirements built from the metadata you were looking at. If someone else changed the table meanwhile, AIStor rejects the commit (409); nothing is overwritten, and the UI offers a reload.
 - **Multi-table change sets:** stage edits across tables of one warehouse and apply them in **one atomic transaction** (`transactions/commit`). Staged changes survive a page reload and are dropped when you sign out.
 - **64-bit safety:** snapshot IDs are parsed and sent without precision loss.
+- **Sessions:** each user sees where they are signed in and can revoke any session or all others. Admins can list and revoke everyone's sessions. The UI warns before an idle or absolute timeout. Background polling does not keep an idle tab signed in.
+- **Expired credentials:** when the short-lived AIStor credentials of an LDAP or access-key session expire, the UI asks for the password in place and retries the request. The page and any staged changes are kept.
+- **Search:** the command palette (⌘K) searches the whole catalog on the server, using your own credentials, so results only include what you may list. The walk is bounded by a request budget and a deadline, and the palette says when results were cut short or locations were skipped.
+- **Activity:** server-side filters (time, source, outcome, text) with paging, and CSV export (cells are neutralised so spreadsheets cannot evaluate them as formulas).
+- **Accessibility and devices:** WCAG 2.1 AA colour contrast, enforced by an axe scan in e2e; the sidebar becomes an overlay on phones; pages are code-split.
 
 ## Quick start (no AIStor needed)
 
@@ -55,12 +62,27 @@ Keycloak puts each user into a group (`catalog-admin`, `catalog-readonly`). AISt
 
 ## Kubernetes
 
+### Helm
+
+```bash
+helm install catalog deploy/helm/aistor-catalog-ui -n aistor-catalog --create-namespace \
+  --set config.server.publicUrl=https://catalog.example.com \
+  --set 'config.clusters[0].endpoint=https://aistor.example.com' \
+  --set ingress.enabled=true --set 'ingress.hosts[0].host=catalog.example.com'
+```
+
+`config` is rendered as the application config file, so every key in the table below can be set there. The chart creates a Secret with a generated session key (kept across upgrades), or uses `secrets.existingSecret`. By default it also runs a password-protected, single-instance Redis (`redis.enabled`) that only the UI can reach. For HA, set `redis.enabled=false` and point `config.session.store` at a managed Redis. Optional extras: private CA bundles (`ca`), a ServiceMonitor, a PDB and NetworkPolicies.
+
+### Kustomize
+
 ```bash
 kubectl -n aistor-catalog create secret generic aistor-catalog-ui \
   --from-literal=session-key="$(openssl rand -base64 32)" \
   --from-literal=oidc-client-secret='…' --from-literal=redis-password='…'
 kubectl apply -k deploy/kubernetes     # edit configmap.yaml first
 ```
+
+An Ingress is included (edit the host and TLS secret). If you have no Redis, add `components: [components/redis]` to the kustomization and point `session.store` at `redis://:${REDIS_PASSWORD}@aistor-catalog-ui-redis:6379/0`.
 
 The deployment runs 2 replicas under the `restricted` Pod Security Standard. It uses a read-only root filesystem, drops all capabilities, and has probes, a PDB and a NetworkPolicy. Replicas share sessions through Redis.
 
@@ -90,13 +112,13 @@ The server reads a YAML file (`-config`, or `AISTOR_UI_CONFIG`). `${VAR}` refere
 | `auth.builtin.enabled` | Access-key sign-in through STS `AssumeRole`. The secret is used once and never stored. Intended for labs |
 | `auth.adminGroups` / `adminUsers` | Who may see everyone's activity. This grants **no** catalog permissions |
 | `clusters[]` | `id`, `name`, `endpoint`, `stsEndpoint`, `region`, `caFile`, `stsDuration`, `timeout` |
-| `limits` | `requestsPerMinute` (per session), `loginPerMinute` (per IP), `maxBodyBytes`, `previewMaxRows` (≤1000) |
+| `limits` | `requestsPerMinute` (per session), `loginPerMinute` (per IP), `maxBodyBytes`, `previewMaxRows` (≤1000). With a Redis session store, the limits are shared by all replicas (fixed one-minute windows). If Redis is unreachable, requests are allowed rather than failed |
 | `audit.webhookUrl` | POST each audit record as JSON. Records are always logged to stdout as well |
 | `audit.webhookSecret[File]` | Sign webhook deliveries: `X-Aistor-Audit-Timestamp` (unix seconds) and `X-Aistor-Audit-Signature: sha256=<hex HMAC-SHA256(secret, timestamp + "." + body)>`. Receivers should reject timestamps older than a few minutes |
 
 Operational endpoints: `/healthz`, `/readyz` (checks the session store), and `/metrics` on `server.metricsListen`.
 
-> **LDAP and access-key sessions** cannot silently renew their AIStor credentials, because the password is not kept. Set `stsDuration` at least as long as `session.absoluteTimeout`. Otherwise users are asked to sign in again when the credentials expire. OIDC sessions renew through the refresh token.
+> **LDAP and access-key sessions** cannot silently renew their AIStor credentials, because the password is not kept. When the credentials expire, the UI asks for the password again (no sign-out, nothing lost). Set `stsDuration` close to `session.absoluteTimeout` to make that rare. OIDC sessions renew through the refresh token.
 
 ## Development
 
@@ -111,12 +133,20 @@ backend/            Go BFF
   internal/audit, auth, config, web (embedded SPA)
 frontend/           React SPA (src/features, src/layout, src/components/ui, src/lib)
 e2e/                Playwright tests
-deploy/             compose/, kubernetes/, dev/
+deploy/             compose/, helm/, kubernetes/ (+ components/redis), dev/
 ```
 
 ```bash
 make test    # go vet + go test -race, eslint, tsc, vitest
 make e2e     # builds everything, runs Playwright against the test server
 ```
+
+The e2e suite covers sign-in, browsing, every editor, conflicts, change sets, time travel, sessions, re-authentication, search, activity export, a phone-sized layout and an axe WCAG 2.1 AA scan. The test server exposes a local control port (`-control`, default `127.0.0.1:9001`) so tests can expire credentials.
+
+CI (`.github/workflows/`) runs:
+
+- `ci.yml`: Go (gofmt, vet, race tests), frontend (lint, typecheck, unit, build), Helm lint plus kubeconform for the chart and kustomize, e2e, and a multi-arch image.
+- `security.yml` (on PRs, main and weekly): govulncheck, `npm audit`, CodeQL (Go, TypeScript), a Trivy image scan with SARIF and SBOM, a Trivy misconfiguration scan of the Dockerfile and manifests, and an OWASP ZAP baseline against the running app (accepted findings are in `.zap/rules.tsv`).
+- Dependabot keeps Go, npm, Docker and Actions dependencies current.
 
 When Chromium comes preinstalled (for example in CI images or sandboxes), set `CHROMIUM_PATH=/path/to/chrome` for `make e2e`.

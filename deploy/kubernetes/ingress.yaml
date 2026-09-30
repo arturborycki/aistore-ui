@@ -1,0 +1,24 @@
+# TLS terminates at the ingress; the UI sets HSTS and secure cookies because
+# server.publicUrl is https. Adjust the host, class and certificate secret.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: aistor-catalog-ui
+  annotations:
+    # Large table metadata and change sets; the UI enforces its own limits.
+    nginx.ingress.kubernetes.io/proxy-body-size: "16m"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [catalog.example.com]
+      secretName: aistor-catalog-ui-tls
+  rules:
+    - host: catalog.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: aistor-catalog-ui
+                port: { name: http }

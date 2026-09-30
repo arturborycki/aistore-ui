@@ -3,6 +3,7 @@ kind: Service
 metadata:
   name: aistor-catalog-ui
 spec:
+  selector: { app.kubernetes.io/component: ui }
   ports:
     - { name: http, port: 80, targetPort: http }
     - { name: metrics, port: 9090, targetPort: metrics }

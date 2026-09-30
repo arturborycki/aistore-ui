@@ -1,0 +1,19 @@
+AIStor Catalog UI {{ .Chart.AppVersion }} is deployed as {{ include "aistor-ui.fullname" . }}.
+
+{{- if .Values.ingress.enabled }}
+Open: {{ .Values.config.server.publicUrl }}
+{{- else }}
+No ingress is enabled. For a quick look:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "aistor-ui.fullname" . }} 8080:{{ .Values.service.port }}
+(server.publicUrl must match the address you open, or sign-in is rejected.)
+{{- end }}
+
+{{- if not .Values.secrets.existingSecret }}
+Secrets are in the Secret {{ include "aistor-ui.fullname" . }} (kept on uninstall).
+{{- end }}
+{{- if and (gt (int .Values.replicaCount) 1) (not .Values.redis.enabled) }}
+{{- if not (hasPrefix "redis" (toString (dig "session" "store" "" .Values.config))) }}
+WARNING: {{ .Values.replicaCount }} replicas without Redis. Sessions are per-replica; set
+config.session.store to a Redis URL or enable redis.
+{{- end }}
+{{- end }}

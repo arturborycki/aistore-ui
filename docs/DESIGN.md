@@ -153,6 +153,9 @@ In every case, the only credential that persists is a **short-lived STS triple**
 - **Idle timeout** is 30 min and **absolute timeout** is 12 h (both configurable). STS `DurationSeconds` is 1 h. The BFF refreshes STS credentials quietly using the OIDC refresh token. If refresh fails, the user is sent to log in again.
 - A new session ID is issued at login (no session fixation). Logout removes the server session and calls RP-initiated logout at the IdP.
 - An admin can revoke a session. Because sessions are stored server-side, a revoke takes effect at once.
+- **Implemented:** each session has a public handle (never the secret ID). A per-user index (`aistor-ui:sidx:<sub>` in Redis) lists a user's sessions with sign-in time, last activity, client IP and user agent. Users revoke their own sessions (one, or all others) on the Sessions page; admins list and revoke everyone's. Every revoke is audited.
+- Requests with `X-Aistor-Background: 1` (the UI's periodic `/auth/me`) do not count as activity, so an unattended tab still reaches the idle timeout. `/auth/me` reports `idleExpiresAt`, `expiresAt` and `credentialsExpireAt`, and the UI warns before each one.
+- LDAP and access-key sessions cannot renew STS credentials without the password. When they expire, catalog calls answer `401 CredentialsExpired` (not `SessionExpired`). The UI then asks for the password (`POST /auth/step-up`) and retries the request; the session and the page survive.
 
 ### 4.3 Tenancy
 - **One BFF deployment can serve several AIStor clusters.** The cluster registry is **server-side config only**: an ID, a base URL, a CA bundle and an STS endpoint. The browser picks a cluster by ID and can never enter a URL, which rules out SSRF.
@@ -194,10 +197,14 @@ In every case, the only credential that persists is a **short-lived STS triple**
 - The BFF writes a structured audit event for every mutating call: `{ts, requestId, user.sub, user.name, cluster, action, resource (incl. UUID/ARN), outcome, upstreamStatus}`. It goes to stdout as JSON and optionally to a webhook or syslog.
 - Each upstream request carries an `X-Request-Id` / `x-amz-request-id` correlation ID, so BFF events can be matched with MinIO audit logs.
 - Each user can see their own recent activity in the UI. Admins, identified by an IdP group claim, can see everyone's.
+- `GET /api/activity` filters the retained window (`audit.retain`) by `since`/`until` (RFC 3339), `kind`, `outcome` and `q` (text), and pages with `offset`/`limit` (≤500). The UI exports matching records as CSV and neutralises formula-like cells.
+- With `audit.webhookSecret`, each webhook delivery carries `X-Aistor-Audit-Timestamp` and `X-Aistor-Audit-Signature: sha256=HMAC(secret, ts + "." + body)`. `audit.VerifySignature` is the reference check and includes a replay window.
 
 ### 5.6 Supply chain and runtime
 - Distroless container, non-root user, read-only root filesystem.
-- Lockfile pinned, SBOM (CycloneDX), `npm audit` and CodeQL in CI, and Renovate.
+- Lockfiles pinned. CI runs govulncheck, `npm audit`, CodeQL (Go and TypeScript, security-extended), a Trivy image scan (SARIF plus an SPDX SBOM; fails on fixable high/critical), a Trivy config scan of the Dockerfile, Helm and kustomize, and an OWASP ZAP baseline against the running app. Dependabot updates Go, npm, Docker and Actions.
+- Login and API rate limits are shared across replicas through Redis (INCR + EXPIRE fixed windows). They fail open if Redis is down, because Redis is already required for sessions and is checked by `/readyz`.
+- The OIDC client can trust a private CA (`auth.oidc.caFile`) for discovery, token exchange and refresh.
 - Secrets (session encryption key, OIDC client secret) come only from mounted files or env. Rotation is supported through a key ring (`kid`).
 
 ---
@@ -303,7 +310,10 @@ GET|PUT /api/c/:c/wh/:wh/ns/:ns/t/:t/encryption   GET|POST|DELETE …/tags
 POST   /api/c/:c/wh/:wh/tables/rename
 GET|POST /api/c/:c/wh/:wh/ns/:ns/views       GET|POST|DELETE …/v/:v   POST …/register-view   POST /api/c/:c/wh/:wh/views/rename
 POST   /api/c/:c/wh/:wh/transactions/commit
-GET    /api/activity
+GET    /api/activity?since=&until=&kind=&outcome=&q=&offset=&limit=&scope=all
+GET    /api/c/:c/search?q=&limit=      catalog-wide name search (caller's permissions, bounded walk)
+GET    /api/sessions   DELETE /api/sessions/:handle   POST /api/sessions/revoke-others
+GET    /api/admin/sessions   DELETE /api/admin/sessions?sub=&handle=   (admins)
 GET    /healthz  /readyz  /metrics (Prometheus, served on a separate port)
 ```
 List responses pass the `X-Minio-Ui-List-Token` and `X-Minio-Ui-Total-Count` headers through unchanged. The `:type` parameter is an enum: `icebergSnapshotManagement|icebergCompaction|icebergUnreferencedFileRemoval`.
@@ -358,7 +368,8 @@ audit: { sink: stdout, webhookUrl: null }
 | **1 – Browse** ✅ | Overview stats, warehouses/namespaces/tables grids (stats mode, search, sort), namespace tree, table and view detail (all read tabs), **data preview**, maintenance status, Access/ARN helper, 403-aware UX |
 | **2 – Manage** ✅ | Create/drop warehouse, namespace, table and view (explicit-purge safeguards); properties and tags editing; rename; register table/view; step-up re-auth; audit trail |
 | **3 – Evolve and operate** ✅ | Schema, partition and sort evolution wizards, snapshot rollback, branch/tag management, conflict handling, multi-table change sets, **maintenance configuration** (warehouse and table), **encryption settings** |
-| **4 – Beyond** | Optional admin policy viewer or generator, Delta Sharing management, staged-create workflows |
+| **Hardening** ✅ | Time travel, snapshot expiry, row-key editing; sessions page and admin revoke; in-place re-auth on expired credentials; expiry warnings; server-side catalog search; activity filters, paging and CSV export; Redis-shared rate limits; signed audit webhook; OIDC CA; Helm chart, Ingress, Redis component; axe (WCAG 2.1 AA), responsive layout, code splitting; CodeQL, govulncheck, Trivy, ZAP, SBOM, Dependabot |
+| **4 – Beyond** | Optional admin policy viewer or generator, Delta Sharing management, staged-create workflows, localisation |
 
 ---
 
@@ -373,7 +384,9 @@ audit: { sink: stdout, webhookUrl: null }
 | Vended-credential leak | `/credentials` not served by AIStor and not routed; delegation header never sent; response redaction |
 | Accidental data purge | `purgeRequested` always sent explicitly; UI defaults to keep-data; purge needs step-up; e2e test checks that a drop without purge keeps the data files |
 | Data exposure through preview | Preview runs with the user's own credentials and needs `s3tables:GetTableData`; the row limit is enforced by the BFF (≤1000); preview responses are never cached by the BFF or the browser (`Cache-Control: no-store`) |
-| Session theft / replay | `__Host-` cookie, short idle timeout, server-side revoke, optional UA/IP binding |
+| Session theft / replay | `__Host-` cookie, short idle timeout (background polls don't extend it), server-side revoke by the user or an admin from the Sessions page, device and IP shown per session |
+| Brute force across replicas | Login and API rate limits shared through Redis |
+| Forged audit events at the SIEM | HMAC-signed webhook deliveries with a timestamp (replay window) |
 | Lost updates from concurrent edits | Iceberg `requirements` + a 409 conflict UX |
 | Log leakage | Redaction layer; auth bodies and signatures are never logged |
 
