@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { Plus, Sigma, Trash2, TriangleAlert } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -15,6 +15,16 @@ import { AIContextEditor } from './AIContextEditor'
 export function SqlEditor({ model, value, onChange, label }: { model: OssieModel; value: string; onChange: (v: string) => void; label: string }) {
   const ref = useRef<HTMLTextAreaElement>(null)
   const [menu, setMenu] = useState<{ from: number; items: { label: string; detail: string }[]; active: number } | null>(null)
+  // Caret position to restore after an accepted completion, applied in the same
+  // commit as the new value so fast typing continues at the right place.
+  const pendingCaret = useRef<number | null>(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (el && pendingCaret.current != null) {
+      el.setSelectionRange(pendingCaret.current, pendingCaret.current)
+      pendingCaret.current = null
+    }
+  }, [value])
   const refresh = (text: string, pos: number) => {
     const c = completions(model, text, pos)
     setMenu(c.items.length ? { ...c, active: 0 } : null)
@@ -24,13 +34,10 @@ export function SqlEditor({ model, value, onChange, label }: { model: OssieModel
     if (!el || !menu) return
     const pos = el.selectionStart
     const next = value.slice(0, menu.from) + label + value.slice(pos)
+    pendingCaret.current = menu.from + label.length
     onChange(next)
     setMenu(null)
-    requestAnimationFrame(() => {
-      el.focus()
-      const at = menu.from + label.length
-      el.setSelectionRange(at, at)
-    })
+    el.focus()
   }
   const listId = `${label.replace(/\W+/g, '-')}-completions`
   return (

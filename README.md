@@ -192,6 +192,20 @@ make e2e     # builds everything, runs Playwright against the test server
 
 The e2e suite covers sign-in, browsing, every editor, conflicts, change sets, time travel, sessions, re-authentication, search, activity export, a phone-sized layout and an axe WCAG 2.1 AA scan. The test server exposes a local control port (`-control`, default `127.0.0.1:9001`) so tests can expire credentials.
 
+**Against a real AIStor** (read-only): run the UI container with a config that points at your cluster (keep it in the git-ignored `deploy/local/`), then walk every page and tab with Playwright. The walk records the error states the UI shows and takes screenshots, and it never writes.
+
+```bash
+docker build -t aistor-catalog-ui:local .
+docker run -d --name aistor-ui-local -p 8080:8080 --read-only -v "$PWD/deploy/local/config.yaml:/etc/aistor-ui/config.yaml:ro" aistor-catalog-ui:local
+LIVE_ACCESS_KEY=… LIVE_SECRET_KEY=… LIVE_CLUSTER=lab E2E_SCREENSHOTS=/tmp/shots make e2e-live   # findings: e2e/test-results/live-findings.json
+```
+
+What real AIStor does that the test server does not model:
+- **The `minio` warehouse** is a reserved, read-only system warehouse. Its namespaces mirror buckets, and it lists placeholder `namespace` tables that cannot be loaded. The UI labels it and hides write actions.
+- **Missing maintenance or encryption configuration** is answered with 404. The UI shows it as "not configured" or "not yet run".
+- **Preview** is read by AIStor itself, which cannot read some layouts (for example, tables with delete files). The UI explains this instead of showing a generic error.
+- **Snapshot summaries** often omit `total-*` counts (they are optional in Iceberg), so the records, files and size figures show "—" with a note.
+
 CI (`.github/workflows/`) runs:
 
 - `ci.yml`: Go (gofmt, vet, race tests), frontend (lint, typecheck, unit, build), Helm lint plus kubeconform for the chart and kustomize, e2e, and a multi-arch image.

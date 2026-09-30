@@ -12,6 +12,7 @@ export function Breadcrumbs({ cluster }: { cluster: string }) {
   const crumbs: { to: string; label: ReactNode }[] = []
 
   if (location.pathname.endsWith('/activity')) crumbs.push({ to: paths.activity(cluster), label: 'Activity' })
+  else if (location.pathname.endsWith('/sessions')) crumbs.push({ to: paths.sessions(cluster), label: 'Sessions' })
   else if (location.pathname.endsWith('/warehouses') || wh) crumbs.push({ to: paths.warehouses(cluster), label: 'Warehouses' })
   else crumbs.push({ to: paths.overview(cluster), label: 'Overview' })
 

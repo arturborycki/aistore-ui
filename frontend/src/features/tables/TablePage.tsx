@@ -32,11 +32,12 @@ import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } fr
 import { EntityBadgeIcon } from '@/components/ui/entity-icon'
 import { Card, CardHeader, KeyValue, PageHeader, StatCard } from '@/components/ui/layout'
 import { Skeleton } from '@/components/ui/skeleton'
-import { ErrorState } from '@/components/ui/states'
+import { EmptyState, ErrorState } from '@/components/ui/states'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip } from '@/components/ui/tooltip'
 import { TypeChip } from '@/components/ui/type-chip'
-import { loadTable, resourceArn } from '@/lib/catalog'
+import { getWarehouse, isSystemWarehouse, loadTable, resourceArn } from '@/lib/catalog'
+import { ApiError } from '@/lib/api'
 import { propertiesChange } from '@/lib/commits'
 import type { Int64 } from '@/lib/json'
 import { cn } from '@/lib/cn'
@@ -198,6 +199,7 @@ export function TablePage() {
   const key = qk.table(cluster, wh, ns, table)
   const q = useQuery({ queryKey: key, queryFn: () => loadTable(cluster, wh, ns, table) })
   const maint = useMaintenanceStatus(cluster, wh, ns, table)
+  const whInfo = useQuery({ queryKey: qk.warehouse(cluster, wh), queryFn: () => getWarehouse(cluster, wh), enabled: q.isError, staleTime: 300_000 })
   const header = (
     <PageHeader
       icon={<EntityBadgeIcon kind="table" />}
@@ -260,7 +262,13 @@ export function TablePage() {
     return (
       <div className="flex flex-col gap-5">
         {header}
-        <ErrorState error={q.error} onRetry={() => q.refetch()} />
+        {q.error instanceof ApiError && q.error.isNotFound && isSystemWarehouse(whInfo.data) ? (
+          <EmptyState title="Placeholder in the system warehouse">
+            AIStor lists this entry in its reserved, read-only <span className="font-mono">{wh}</span> warehouse, but does not serve it as a table.
+          </EmptyState>
+        ) : (
+          <ErrorState error={q.error} onRetry={() => q.refetch()} />
+        )}
       </div>
     )
   }
@@ -281,6 +289,8 @@ export function TablePage() {
   const md = q.data.metadata
   const view = resolveView(md, at)
   const snap = view.snapshot
+  // Totals are optional in Iceberg snapshot summaries; AIStor often omits them.
+  const noTotals = !!snap && summaryNumber(snap, 'total-records') == null
   const schema = currentSchema(md)!
   const names = fieldNames(schema)
   const spec = md['partition-specs'].find((s) => s['spec-id'] === md['default-spec-id'])
@@ -308,9 +318,9 @@ export function TablePage() {
         </div>
       )}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
-        <StatCard label="Records" value={<span title={formatNumber(summaryNumber(snap, 'total-records'))}>{formatCompact(summaryNumber(snap, 'total-records') ?? (snap ? undefined : 0))}</span>} />
-        <StatCard label="Data files" value={formatNumber(summaryNumber(snap, 'total-data-files') ?? (snap ? undefined : 0))} />
-        <StatCard label="Size" value={formatBytes(summaryNumber(snap, 'total-files-size') ?? (snap ? undefined : 0))} />
+        <StatCard label="Records" hint={noTotals ? 'Not recorded in the snapshot summary' : undefined} value={<span title={formatNumber(summaryNumber(snap, 'total-records'))}>{formatCompact(summaryNumber(snap, 'total-records') ?? (snap ? undefined : 0))}</span>} />
+        <StatCard label="Data files" hint={noTotals ? 'Not recorded in the snapshot summary' : undefined} value={formatNumber(summaryNumber(snap, 'total-data-files') ?? (snap ? undefined : 0))} />
+        <StatCard label="Size" hint={noTotals ? 'Not recorded in the snapshot summary' : undefined} value={formatBytes(summaryNumber(snap, 'total-files-size') ?? (snap ? undefined : 0))} />
         <StatCard label="Snapshots" value={formatNumber(md.snapshots?.length ?? 0)} />
         {current ? (
           <StatCard label="Last commit" value={<span className="text-[18px]">{formatRelative(md['last-updated-ms'])}</span>} hint={formatDateTime(md['last-updated-ms'])} />

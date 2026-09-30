@@ -10,3 +10,6 @@ coverage/
 test-results/
 playwright-report/
 *.tsbuildinfo
+
+# local test deployments (config with generated keys)
+deploy/local/

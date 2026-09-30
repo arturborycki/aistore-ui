@@ -15,6 +15,7 @@ import {
   arn,
   deleteWarehouseEncryption,
   getWarehouse,
+  isSystemWarehouse,
   getWarehouseEncryption,
   getWarehouseMaintenance,
   getWarehouseTags,
@@ -60,6 +61,7 @@ export function WarehousePage() {
   const w = q.data
   const props = w?.properties ?? {}
   const s = stats.data
+  const system = isSystemWarehouse(w)
 
   return (
     <div className="flex flex-col gap-5">
@@ -71,7 +73,8 @@ export function WarehousePage() {
             <Skeleton className="h-3.5 w-48" />
           ) : (
             <>
-              {w?.['created-at'] && <span title={formatDateTime(w['created-at'])}>Created {formatRelative(w['created-at'])}</span>}
+              {system && <span>Reserved AIStor system warehouse. It is read-only; its namespaces mirror your buckets.</span>}
+              {w?.['created-at'] && !system && <span title={formatDateTime(w['created-at'])}>Created {formatRelative(w['created-at'])}</span>}
               {props.description && <span> · {props.description}</span>}
             </>
           )
@@ -79,11 +82,13 @@ export function WarehousePage() {
         badges={
           <>
             <Badge tone="accent">Warehouse</Badge>
+            {system && <Badge tone="warning">System · read-only</Badge>}
             {w?.bucket && w.bucket !== wh && <Badge mono>bucket: {w.bucket}</Badge>}
           </>
         }
         actions={
-          <Menu>
+          !system && (
+            <Menu>
             <MenuTrigger asChild>
               <Button size="icon" variant="outline" aria-label="Warehouse actions">
                 <Ellipsis />
@@ -94,7 +99,8 @@ export function WarehousePage() {
                 Delete warehouse…
               </MenuItem>
             </MenuContent>
-          </Menu>
+            </Menu>
+          )
         }
       />
 
@@ -113,15 +119,17 @@ export function WarehousePage() {
           <TabsTrigger value="details" icon={<Info />}>
             Details
           </TabsTrigger>
-          <TabsTrigger value="settings" icon={<Settings2 />}>
-            Settings
-          </TabsTrigger>
+          {!system && (
+            <TabsTrigger value="settings" icon={<Settings2 />}>
+              Settings
+            </TabsTrigger>
+          )}
           <TabsTrigger value="access" icon={<KeyRound />}>
             Access
           </TabsTrigger>
         </TabsList>
         <TabsContent value="namespaces">
-          <NamespacesTable cluster={cluster} warehouse={wh} parent={[]} />
+          <NamespacesTable cluster={cluster} warehouse={wh} parent={[]} readOnly={system} />
         </TabsContent>
         <TabsContent value="details">
           <div className="grid gap-4 lg:grid-cols-2">

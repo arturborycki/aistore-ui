@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { ApiError } from '@/lib/api'
 import { MaintenanceSettings } from '@/features/settings/SettingsEditors'
 import { CircleCheck, CircleDashed, CircleOff, CircleX, Wrench } from 'lucide-react'
 import { Badge, type Tone } from '@/components/ui/badge'
@@ -25,6 +26,7 @@ export function statusMeta(s?: string): { tone: Tone; label: string; icon: React
       return { tone: 'danger', label: 'Failed', icon: <CircleX className="size-3" /> }
     case 'Disabled':
       return { tone: 'neutral', label: 'Disabled', icon: <CircleOff className="size-3" /> }
+    case undefined:
     case 'Not_Yet_Run':
       return { tone: 'info', label: 'Not yet run', icon: <CircleDashed className="size-3" /> }
     default:
@@ -35,15 +37,24 @@ export function statusMeta(s?: string): { tone: Tone; label: string; icon: React
 export function useMaintenanceStatus(cluster: string, wh: string, ns: Namespace, table: string) {
   return useQuery({
     queryKey: [...qk.table(cluster, wh, ns, table), 'maintenance-status'],
-    queryFn: () => getTableMaintenanceStatus(cluster, wh, ns, table),
+    // AIStor answers 404 (MaintenanceConfigurationNotFound) when no job was
+    // ever configured or run for the table: that is "not yet run", not an error.
+    queryFn: async () => {
+      try {
+        return await getTableMaintenanceStatus(cluster, wh, ns, table)
+      } catch (e) {
+        if (e instanceof ApiError && e.isNotFound) return { status: {} }
+        throw e
+      }
+    },
     staleTime: 60_000,
   })
 }
 
 /** Worst status across maintenance jobs, for the table header badge. */
 export function MaintenanceHealthBadge({ status }: { status?: Partial<Record<MaintenanceType, MaintenanceJobStatus>> }) {
-  if (!status) return null
-  const vals = Object.values(status).map((s) => s?.status)
+  const vals = Object.values(status ?? {}).map((s) => s?.status)
+  if (vals.length === 0) return null
   const worst = vals.includes('Failed') ? 'Failed' : vals.every((v) => v === 'Disabled') ? 'Disabled' : vals.includes('Successful') ? 'Successful' : 'Not_Yet_Run'
   const m = statusMeta(worst)
   return (

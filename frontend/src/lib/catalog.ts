@@ -95,6 +95,14 @@ export interface Warehouse {
   properties?: Record<string, string>
 }
 
+/**
+ * AIStor's reserved system warehouse ("minio") is read-only and is returned
+ * without a UUID, bucket or creation time.
+ */
+export function isSystemWarehouse(w?: Warehouse | null): boolean {
+  return !!w && !w.uuid && !w.bucket && (!w['created-at'] || w['created-at'].startsWith('0001-'))
+}
+
 export async function getWarehouse(cluster: string, wh: string) {
   return (await api.get<Warehouse>(w(cluster, wh))).data
 }

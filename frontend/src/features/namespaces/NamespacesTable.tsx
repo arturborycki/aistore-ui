@@ -20,7 +20,7 @@ interface Row {
   stats?: EntryStats
 }
 
-export function NamespacesTable({ cluster, warehouse, parent }: { cluster: string; warehouse: string; parent: Namespace }) {
+export function NamespacesTable({ cluster, warehouse, parent, readOnly }: { cluster: string; warehouse: string; parent: Namespace; readOnly?: boolean }) {
   const navigate = useNavigate()
   const [toDelete, setToDelete] = useState<Namespace | null>(null)
   const list = useStatsList(qk.namespaces(cluster, warehouse, parent), (p) => listNamespaces(cluster, warehouse, { ...p, parent }), 50)
@@ -52,7 +52,7 @@ export function NamespacesTable({ cluster, warehouse, parent }: { cluster: strin
           <Input value={list.search} onChange={(e) => list.setSearch(e.target.value)} placeholder="Search namespaces" aria-label="Search namespaces" className="pl-8" />
         </div>
         <div className="flex-1" />
-        <CreateNamespaceDialog cluster={cluster} warehouse={warehouse} parent={parent} trigger="small" />
+        {!readOnly && <CreateNamespaceDialog cluster={cluster} warehouse={warehouse} parent={parent} trigger="small" />}
       </div>
       {list.query.isError ? (
         <ErrorState error={list.query.error} onRetry={() => list.query.refetch()} />

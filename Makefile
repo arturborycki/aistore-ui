@@ -37,6 +37,10 @@ e2e: build ## Browser tests against the in-memory AIStor test server
 	trap "kill $$ts $$ui" EXIT; sleep 1; \
 	cd e2e && npx playwright test
 
+.PHONY: e2e-live
+e2e-live: ## Read-only UI walk against a running UI and real AIStor (LIVE_ACCESS_KEY, LIVE_SECRET_KEY, LIVE_CLUSTER, E2E_BASE_URL)
+	cd e2e && npx playwright test -c live/playwright.config.ts
+
 .PHONY: dev
 dev: ## Run test server + backend + Vite dev server (http://localhost:5173)
 	@cd backend && go build -o bin/aistor-testserver ./cmd/aistor-testserver

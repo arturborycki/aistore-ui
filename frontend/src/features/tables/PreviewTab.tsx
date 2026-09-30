@@ -6,6 +6,7 @@ import { Dialog, DialogBody, DialogContent } from '@/components/ui/dialog'
 import { JsonView } from '@/components/ui/json-view'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState, ErrorState } from '@/components/ui/states'
+import { ApiError } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { previewTable, type PreviewResult } from '@/lib/catalog'
 import type { Namespace } from '@/lib/namespace'
@@ -78,7 +79,16 @@ export function PreviewTab({ cluster, wh, ns, table, currentSnapshot }: { cluste
       </div>
 
       {q.isPending && <Skeleton className="h-72 w-full" />}
-      {q.isError && <ErrorState error={q.error} onRetry={() => q.refetch()} />}
+      {q.isError &&
+        (previewUnsupported(q.error) ? (
+          <EmptyState title="AIStor cannot preview this table" className="py-10">
+            The preview is read by AIStor itself, and this release can only read some table layouts (for example, not tables with delete files
+            from merge-on-read deletes). Query the table with Spark, Trino or another engine instead.
+            <span className="mt-2 block font-mono text-[11.5px] text-subtle">{(q.error as Error).message}</span>
+          </EmptyState>
+        ) : (
+          <ErrorState error={q.error} onRetry={() => q.refetch()} />
+        ))}
       {q.data && q.data.rows.length === 0 && (
         <EmptyState icon={<Rows3 />} title="No rows">
           {currentSnapshot ? 'The current snapshot contains no rows.' : 'This table has never been written to.'}
@@ -139,4 +149,9 @@ export function PreviewTab({ cluster, wh, ns, table, currentSnapshot }: { cluste
       </Dialog>
     </div>
   )
+}
+
+/** AIStor reports reader limitations as a 500 with "not implemented" or a read-batch cause. */
+function previewUnsupported(e: unknown): boolean {
+  return e instanceof ApiError && e.status === 500 && /not implemented|read batch|scan table/i.test(e.message)
 }

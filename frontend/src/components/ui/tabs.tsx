@@ -13,7 +13,7 @@ export function TabsTrigger({ value, children, icon, count }: { value: string; c
     <T.Trigger
       value={value}
       className={cn(
-        'relative -mb-px flex h-9 items-center gap-1.5 border-b-2 border-transparent px-2.5 text-[13px] text-muted transition-colors',
+        'relative -mb-px flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 border-transparent px-2.5 text-[13px] text-muted transition-colors',
         'hover:text-fg data-[state=active]:border-accent data-[state=active]:font-medium data-[state=active]:text-fg [&_svg]:size-4',
       )}
     >

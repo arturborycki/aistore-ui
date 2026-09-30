@@ -249,8 +249,8 @@ test('time travel, expire snapshots and change the row key', async ({ page }) =>
   await page.locator('tbody tr').nth(1).click()
   await page.getByRole('tab', { name: /^Snapshots/ }).click()
   const history = page.getByRole('list', { name: 'Snapshot history' }).locator(':scope > li')
+  await expect(history.nth(2)).toBeVisible()
   const before = await history.count()
-  expect(before).toBeGreaterThan(2)
 
   // View an older snapshot: the page says so and offers the way back.
   await history.nth(before - 1).locator('button').first().click()
