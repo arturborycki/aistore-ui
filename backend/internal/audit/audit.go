@@ -6,9 +6,13 @@ package audit
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -43,12 +47,29 @@ type Logger struct {
 	log     *slog.Logger
 	store   Store
 	webhook string
+	secret  []byte
 	queue   chan []byte
 	client  *http.Client
 }
 
-func NewLogger(log *slog.Logger, store Store, webhookURL string) *Logger {
+// Option configures a Logger.
+type Option func(*Logger)
+
+// WithWebhookSecret signs webhook deliveries with HMAC-SHA256 so receivers can
+// verify their origin and integrity (see VerifySignature).
+func WithWebhookSecret(secret string) Option {
+	return func(l *Logger) {
+		if secret != "" {
+			l.secret = []byte(secret)
+		}
+	}
+}
+
+func NewLogger(log *slog.Logger, store Store, webhookURL string, opts ...Option) *Logger {
 	l := &Logger{log: log, store: store, webhook: webhookURL}
+	for _, o := range opts {
+		o(l)
+	}
 	if webhookURL != "" {
 		l.queue = make(chan []byte, 1024)
 		l.client = &http.Client{Timeout: 10 * time.Second}
@@ -104,10 +125,45 @@ func (l *Logger) List(ctx context.Context, subject string, limit int) ([]Record,
 	return l.store.List(ctx, subject, limit)
 }
 
+// Headers set on signed webhook deliveries.
+const (
+	HeaderTimestamp = "X-Aistor-Audit-Timestamp"
+	HeaderSignature = "X-Aistor-Audit-Signature"
+)
+
+// Sign computes the delivery signature: "sha256=" + hex(HMAC(secret, timestamp + "." + body)).
+func Sign(secret []byte, timestamp string, body []byte) string {
+	m := hmac.New(sha256.New, secret)
+	m.Write([]byte(timestamp))
+	m.Write([]byte("."))
+	m.Write(body)
+	return "sha256=" + hex.EncodeToString(m.Sum(nil))
+}
+
+// VerifySignature checks a delivery and rejects timestamps older than maxAge (replay protection).
+func VerifySignature(secret []byte, timestamp, signature string, body []byte, maxAge time.Duration) bool {
+	ts, err := strconv.ParseInt(timestamp, 10, 64)
+	if err != nil || time.Since(time.Unix(ts, 0)).Abs() > maxAge {
+		return false
+	}
+	return hmac.Equal([]byte(Sign(secret, timestamp, body)), []byte(signature))
+}
+
 func (l *Logger) deliver() {
 	for b := range l.queue {
 		for attempt := 0; attempt < 3; attempt++ {
-			resp, err := l.client.Post(l.webhook, "application/json", bytes.NewReader(b))
+			req, err := http.NewRequest(http.MethodPost, l.webhook, bytes.NewReader(b))
+			if err != nil {
+				l.log.Error("audit webhook: bad URL", "err", err)
+				break
+			}
+			req.Header.Set("Content-Type", "application/json")
+			if l.secret != nil {
+				ts := strconv.FormatInt(time.Now().Unix(), 10)
+				req.Header.Set(HeaderTimestamp, ts)
+				req.Header.Set(HeaderSignature, Sign(l.secret, ts, b))
+			}
+			resp, err := l.client.Do(req)
 			if err == nil {
 				resp.Body.Close()
 				if resp.StatusCode < 300 {

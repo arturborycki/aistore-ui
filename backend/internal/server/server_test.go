@@ -239,9 +239,9 @@ func TestEndToEndMultiUser(t *testing.T) {
 				}
 			}
 
-			// Expired credentials cannot be renewed for LDAP sessions: the user must sign in again.
+			// Expired credentials cannot be renewed silently for LDAP sessions: the UI asks for the password.
 			e.fake.ExpireNext = true
-			if resp, out := alice.do("GET", "/api/c/dev/warehouses", ""); resp.StatusCode != 401 || errType(out) != "SessionExpired" {
+			if resp, out := alice.do("GET", "/api/c/dev/warehouses", ""); resp.StatusCode != 401 || errType(out) != "CredentialsExpired" {
 				t.Fatalf("expired: %d %v", resp.StatusCode, out)
 			}
 

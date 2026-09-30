@@ -85,13 +85,14 @@ The server reads a YAML file (`-config`, or `AISTOR_UI_CONFIG`). `${VAR}` refere
 | `session.store` | `memory` (single replica) or `redis://` / `rediss://` URL |
 | `session.keys[]` | AES-256 keys (`value` or `file`). The first key encrypts; all keys decrypt, which allows rotation |
 | `session.idleTimeout` / `absoluteTimeout` / `stepUpValidFor` | Default 30m / 12h / 5m |
-| `auth.oidc` | `issuer`, `clientId`, `clientSecret[File]`, `scopes`, `groupsClaim`, `usernameClaim`, `stsToken` (`id_token` or `access_token`), `discoveryUrl` (split-horizon), `endSessionRedirect` |
+| `auth.oidc` | `issuer`, `clientId`, `clientSecret[File]`, `scopes`, `groupsClaim`, `usernameClaim`, `stsToken` (`id_token` or `access_token`), `discoveryUrl` (split-horizon), `endSessionRedirect`, `caFile` (PEM bundle trusted for the IdP, in addition to system roots) |
 | `auth.ldap.enabled` | Directory sign-in through AIStor `AssumeRoleWithLDAPIdentity` |
 | `auth.builtin.enabled` | Access-key sign-in through STS `AssumeRole`. The secret is used once and never stored. Intended for labs |
 | `auth.adminGroups` / `adminUsers` | Who may see everyone's activity. This grants **no** catalog permissions |
 | `clusters[]` | `id`, `name`, `endpoint`, `stsEndpoint`, `region`, `caFile`, `stsDuration`, `timeout` |
 | `limits` | `requestsPerMinute` (per session), `loginPerMinute` (per IP), `maxBodyBytes`, `previewMaxRows` (≤1000) |
 | `audit.webhookUrl` | POST each audit record as JSON. Records are always logged to stdout as well |
+| `audit.webhookSecret[File]` | Sign webhook deliveries: `X-Aistor-Audit-Timestamp` (unix seconds) and `X-Aistor-Audit-Signature: sha256=<hex HMAC-SHA256(secret, timestamp + "." + body)>`. Receivers should reject timestamps older than a few minutes |
 
 Operational endpoints: `/healthz`, `/readyz` (checks the session store), and `/metrics` on `server.metricsListen`.
 

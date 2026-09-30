@@ -6,9 +6,13 @@ package auth
 import (
 	"context"
 	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -23,6 +27,7 @@ import (
 type OIDC struct {
 	cfg         config.OIDC
 	redirectURL string
+	httpClient  *http.Client
 
 	mu         sync.Mutex
 	provider   *oidc.Provider
@@ -31,8 +36,38 @@ type OIDC struct {
 	endSession string
 }
 
-func NewOIDC(cfg config.OIDC, redirectURL string) *OIDC {
-	return &OIDC{cfg: cfg, redirectURL: redirectURL}
+// NewOIDC prepares the relying party. With cfg.CAFile, the identity provider's
+// certificate is verified against that bundle (in addition to system roots).
+func NewOIDC(cfg config.OIDC, redirectURL string) (*OIDC, error) {
+	o := &OIDC{cfg: cfg, redirectURL: redirectURL}
+	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS12}
+	if cfg.CAFile != "" {
+		pem, err := os.ReadFile(cfg.CAFile)
+		if err != nil {
+			return nil, fmt.Errorf("oidc: read CA: %w", err)
+		}
+		pool, err := x509.SystemCertPool()
+		if err != nil || pool == nil {
+			pool = x509.NewCertPool()
+		}
+		if !pool.AppendCertsFromPEM(pem) {
+			return nil, fmt.Errorf("oidc: no certificates in %s", cfg.CAFile)
+		}
+		tlsCfg.RootCAs = pool
+	}
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.TLSClientConfig = tlsCfg
+	o.httpClient = &http.Client{Transport: tr, Timeout: 15 * time.Second}
+	return o, nil
+}
+
+// withClient makes go-oidc and oauth2 use the configured HTTP client. The
+// returned context is not cancelled with the request, because the provider
+// keeps it for fetching signing keys later.
+func (o *OIDC) withClient(ctx context.Context) context.Context {
+	base := context.WithoutCancel(ctx)
+	base = context.WithValue(base, oauth2.HTTPClient, o.httpClient)
+	return oidc.ClientContext(base, o.httpClient)
 }
 
 func (o *OIDC) init(ctx context.Context) error {
@@ -41,6 +76,7 @@ func (o *OIDC) init(ctx context.Context) error {
 	if o.provider != nil {
 		return nil
 	}
+	ctx = o.withClient(ctx)
 	discovery := o.cfg.Issuer
 	if o.cfg.DiscoveryURL != "" {
 		// Split-horizon deployments: discover through an internal URL while
@@ -48,9 +84,7 @@ func (o *OIDC) init(ctx context.Context) error {
 		ctx = oidc.InsecureIssuerURLContext(ctx, o.cfg.Issuer)
 		discovery = o.cfg.DiscoveryURL
 	}
-	dctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	p, err := oidc.NewProvider(dctx, discovery)
+	p, err := oidc.NewProvider(ctx, discovery)
 	if err != nil {
 		return fmt.Errorf("oidc discovery: %w", err)
 	}
@@ -130,7 +164,7 @@ func (o *OIDC) Exchange(ctx context.Context, code string, st *State) (*Identity,
 	if err := o.init(ctx); err != nil {
 		return nil, err
 	}
-	tok, err := o.oauth.Exchange(ctx, code, oauth2.VerifierOption(st.Verifier))
+	tok, err := o.oauth.Exchange(o.withClient(ctx), code, oauth2.VerifierOption(st.Verifier))
 	if err != nil {
 		return nil, fmt.Errorf("token exchange: %w", err)
 	}
@@ -181,7 +215,7 @@ func (o *OIDC) Refresh(ctx context.Context, t *session.OIDCTokens) (*Identity, e
 	if t.RefreshToken == "" {
 		return nil, errors.New("no refresh token")
 	}
-	src := o.oauth.TokenSource(ctx, &oauth2.Token{RefreshToken: t.RefreshToken, Expiry: time.Unix(1, 0)})
+	src := o.oauth.TokenSource(o.withClient(ctx), &oauth2.Token{RefreshToken: t.RefreshToken, Expiry: time.Unix(1, 0)})
 	tok, err := src.Token()
 	if err != nil {
 		return nil, fmt.Errorf("refresh: %w", err)

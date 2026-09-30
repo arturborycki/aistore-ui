@@ -113,9 +113,11 @@ func (s *Server) exchangeAll(ctx context.Context, fn func(context.Context, *aist
 // establish creates a new session (discarding any existing one) and sets the cookie.
 func (s *Server) establish(w http.ResponseWriter, r *http.Request, sess *session.Session) (string, error) {
 	if st := stateFrom(r); st != nil {
-		_ = s.sessions.Delete(r.Context(), st.id)
+		_ = s.sessions.DeleteSession(r.Context(), st.id, st.s)
 	}
 	sess.User.Admin = isAdmin(s.cfg, &sess.User)
+	sess.ClientIP = clientIP(r)
+	sess.UserAgent = truncate(r.UserAgent(), 200)
 	id, err := s.sessions.Create(r.Context(), sess)
 	if err != nil {
 		return "", err
@@ -411,7 +413,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 		if st.s.User.Method == "oidc" && s.oidc != nil && st.s.OIDC != nil {
 			redirect = s.oidc.EndSessionURL(r.Context(), st.s.OIDC.IDToken, s.cfg.PublicURL().String()+"/login")
 		}
-		_ = s.sessions.Delete(r.Context(), st.id)
+		_ = s.sessions.DeleteSession(r.Context(), st.id, st.s)
 		s.recordAuth(r, s.actor(r), "Logout", "success", "")
 	}
 	s.clearSessionCookie(w)
@@ -444,13 +446,15 @@ func (s *Server) mePayload(sess *session.Session) map[string]any {
 		stepUpUntil = &t
 	}
 	return map[string]any{
-		"user":               sess.User,
-		"csrfToken":          sess.CSRFToken,
-		"clusters":           clusters,
-		"expiresAt":          sess.AbsoluteExpiry,
-		"idleTimeoutSeconds": int(s.cfg.Session.IdleTimeout / time.Second),
-		"stepUpValidUntil":   stepUpUntil,
-		"version":            s.version,
+		"user":                sess.User,
+		"csrfToken":           sess.CSRFToken,
+		"clusters":            clusters,
+		"expiresAt":           sess.AbsoluteExpiry,
+		"idleTimeoutSeconds":  int(s.cfg.Session.IdleTimeout / time.Second),
+		"stepUpValidUntil":    stepUpUntil,
+		"credentialsExpireAt": credsExpiry(sess),
+		"sessionHandle":       sess.Handle,
+		"version":             s.version,
 	}
 }
 
@@ -466,4 +470,21 @@ func truncate(v string, n int) string {
 		return v
 	}
 	return v[:n]
+}
+
+// credsExpiry reports when the earliest AIStor credentials expire for sessions
+// that cannot renew them silently (LDAP and access-key sign-in), so the UI can
+// ask for the password before requests start failing.
+func credsExpiry(sess *session.Session) *time.Time {
+	if sess.User.Method == "oidc" {
+		return nil
+	}
+	var min *time.Time
+	for _, c := range sess.Creds {
+		if c != nil && (min == nil || c.Expiration.Before(*min)) {
+			t := c.Expiration
+			min = &t
+		}
+	}
+	return min
 }

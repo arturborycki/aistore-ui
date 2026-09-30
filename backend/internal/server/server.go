@@ -11,10 +11,12 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/arturborycki/aistore-ui/backend/internal/aistor"
 	"github.com/arturborycki/aistore-ui/backend/internal/apierr"
@@ -39,8 +41,8 @@ type Server struct {
 	static   fs.FS
 	version  string
 
-	apiLimiter   *limiter
-	loginLimiter *limiter
+	apiLimiter   rateLimiter
+	loginLimiter rateLimiter
 
 	// refresh serialises credential renewal per session+cluster.
 	refreshMu  sync.Mutex
@@ -53,7 +55,9 @@ type Options struct {
 	Sessions *session.Manager
 	Audit    *audit.Logger
 	Static   fs.FS // built SPA; may be nil
-	Version  string
+	// Redis, when set, makes rate limits shared across replicas.
+	Redis   redis.UniversalClient
+	Version string
 }
 
 func New(o Options) (*Server, error) {
@@ -72,8 +76,16 @@ func New(o Options) (*Server, error) {
 		}
 		s.clients[cl.ID] = c
 	}
+	if o.Redis != nil {
+		s.apiLimiter = newRedisLimiter(o.Redis, "api", o.Config.Limits.RequestsPerMinute, o.Log)
+		s.loginLimiter = newRedisLimiter(o.Redis, "login", o.Config.Limits.LoginPerMinute, o.Log)
+	}
 	if o.Config.Auth.OIDC.Enabled {
-		s.oidc = auth.NewOIDC(o.Config.Auth.OIDC, o.Config.PublicURL().String()+"/auth/oidc/callback")
+		oc, err := auth.NewOIDC(o.Config.Auth.OIDC, o.Config.PublicURL().String()+"/auth/oidc/callback")
+		if err != nil {
+			return nil, err
+		}
+		s.oidc = oc
 	}
 	return s, nil
 }
@@ -108,6 +120,7 @@ func (s *Server) Handler() http.Handler {
 		r.Route("/api", func(r chi.Router) {
 			r.Use(s.requireSession, s.rateLimit(s.apiLimiter, false))
 			r.Get("/activity", s.handleActivity)
+			s.mountSessions(r)
 			catalog.Mount(r, catalog.Deps{
 				Clients:         s.clients,
 				Credentials:     s.credentials,
@@ -168,7 +181,8 @@ func (s *Server) credentials(r *http.Request, cluster string, force bool) (*sess
 		if msg, bad := st.s.ClusterErrors[cluster]; bad && cur == nil {
 			return nil, fmt.Errorf("%w: %s", catalog.ErrClusterUnavailable, msg)
 		}
-		return nil, catalog.ErrReauthenticate
+		// The password is never kept, so the user must confirm it again.
+		return nil, catalog.ErrCredentialsExpired
 	}
 
 	lk := s.lockFor(st.id + "|" + cluster)
@@ -252,27 +266,62 @@ func (s *Server) recordAuth(r *http.Request, actor audit.Actor, op, outcome, err
 
 func (s *Server) handleActivity(w http.ResponseWriter, r *http.Request) {
 	st := stateFrom(r)
+	q := r.URL.Query()
 	limit := 100
-	if v, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && v > 0 && v <= 500 {
+	if v, err := strconv.Atoi(q.Get("limit")); err == nil && v > 0 && v <= 500 {
 		limit = v
 	}
+	offset := 0
+	if v, err := strconv.Atoi(q.Get("offset")); err == nil && v >= 0 {
+		offset = v
+	}
 	subject := st.s.User.Subject
-	if r.URL.Query().Get("scope") == "all" {
+	if q.Get("scope") == "all" {
 		if !st.s.User.Admin {
 			apierr.Write(w, http.StatusForbidden, "AccessDenied", "only administrators can view everyone's activity")
 			return
 		}
 		subject = ""
 	}
-	recs, err := s.audit.List(r.Context(), subject, limit)
+	var since, until time.Time
+	for k, dst := range map[string]*time.Time{"since": &since, "until": &until} {
+		if v := q.Get(k); v != "" {
+			t, err := time.Parse(time.RFC3339, v)
+			if err != nil {
+				apierr.Write(w, http.StatusBadRequest, "ValidationError", k+" must be an RFC 3339 timestamp")
+				return
+			}
+			*dst = t
+		}
+	}
+	kind, outcome, text := q.Get("kind"), q.Get("outcome"), strings.ToLower(strings.TrimSpace(q.Get("q")))
+	if len(text) > 200 {
+		apierr.Write(w, http.StatusBadRequest, "ValidationError", "q is too long")
+		return
+	}
+	// The store keeps a bounded window (audit.retain); filter it, newest first.
+	recs, err := s.audit.List(r.Context(), subject, s.cfg.Audit.Retain)
 	if err != nil {
 		apierr.Write(w, http.StatusServiceUnavailable, "AuditUnavailable", "activity is temporarily unavailable")
 		return
 	}
-	if recs == nil {
-		recs = []audit.Record{}
+	filtered := make([]audit.Record, 0, len(recs))
+	for _, rec := range recs {
+		if (!since.IsZero() && rec.Time.Before(since)) || (!until.IsZero() && rec.Time.After(until)) ||
+			(kind != "" && rec.Kind != kind) || (outcome != "" && rec.Outcome != outcome) {
+			continue
+		}
+		if text != "" && !strings.Contains(strings.ToLower(strings.Join([]string{rec.Operation, rec.Resource, rec.Actor.Username, rec.Action, rec.Error, rec.ClientIP}, " ")), text) {
+			continue
+		}
+		filtered = append(filtered, rec)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"records": recs})
+	total := len(filtered)
+	if offset > total {
+		offset = total
+	}
+	end := min(offset+limit, total)
+	writeJSON(w, http.StatusOK, map[string]any{"records": filtered[offset:end], "total": total, "offset": offset, "retained": s.cfg.Audit.Retain})
 }
 
 func isAdmin(cfg *config.Config, u *session.User) bool {

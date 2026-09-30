@@ -72,7 +72,9 @@ type Auth struct {
 }
 
 type OIDC struct {
-	Enabled          bool     `yaml:"enabled"`
+	Enabled bool `yaml:"enabled"`
+	// CAFile adds a PEM bundle to trust when talking to the identity provider.
+	CAFile           string   `yaml:"caFile"`
 	DisplayName      string   `yaml:"displayName"`
 	Issuer           string   `yaml:"issuer"`
 	DiscoveryURL     string   `yaml:"discoveryUrl"` // optional split-horizon discovery base (issuer is still enforced on tokens)
@@ -116,6 +118,9 @@ type Cluster struct {
 
 type Audit struct {
 	WebhookURL string `yaml:"webhookUrl"`
+	// WebhookSecret signs every webhook delivery (HMAC-SHA256); use WebhookSecretFile to keep it out of the YAML.
+	WebhookSecret     string `yaml:"webhookSecret"`
+	WebhookSecretFile string `yaml:"webhookSecretFile"`
 	// Retain is the number of audit events kept per user (and globally) for the in-app activity view.
 	Retain int `yaml:"retain"`
 }
@@ -235,6 +240,13 @@ func readSecretFile(path string) (string, error) {
 }
 
 func (c *Config) resolveSecrets() error {
+	if c.Audit.WebhookSecretFile != "" {
+		s, err := readSecretFile(c.Audit.WebhookSecretFile)
+		if err != nil {
+			return err
+		}
+		c.Audit.WebhookSecret = s
+	}
 	if c.Auth.OIDC.ClientSecretFile != "" {
 		s, err := readSecretFile(c.Auth.OIDC.ClientSecretFile)
 		if err != nil {

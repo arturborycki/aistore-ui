@@ -43,6 +43,7 @@ type Recorded struct {
 }
 
 type Fake struct {
+	prefix string
 	Server *httptest.Server
 	Region string
 
@@ -69,7 +70,7 @@ type stsSession struct {
 }
 
 func New(users ...*User) *Fake {
-	f := &Fake{Region: "us-east-1", users: map[string]*User{}, sessions: map[string]stsSession{}, STSDuration: time.Hour, STSCalls: map[string]int{}}
+	f := &Fake{prefix: fakeUUID(fmt.Sprint(time.Now().UnixNano()))[:8], Region: "us-east-1", users: map[string]*User{}, sessions: map[string]stsSession{}, STSDuration: time.Hour, STSCalls: map[string]int{}}
 	for _, u := range users {
 		f.users[u.AccessKey] = u
 	}
@@ -78,6 +79,15 @@ func New(users ...*User) *Fake {
 }
 
 func (f *Fake) Close() { f.Server.Close() }
+
+// SetAllowed replaces a user's allowed operations.
+func (f *Fake) SetAllowed(user string, allowed []string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if u := f.users[user]; u != nil {
+		u.Allowed = allowed
+	}
+}
 
 func (f *Fake) URL() string { return f.Server.URL }
 
@@ -108,7 +118,7 @@ func xmlErr(w http.ResponseWriter, status int, code, msg string) {
 func (f *Fake) issue(w http.ResponseWriter, action, user string) {
 	f.mu.Lock()
 	n := len(f.sessions) + 1
-	ak := fmt.Sprintf("TMP%05d", n)
+	ak := fmt.Sprintf("TMP%s%05d", f.prefix, n)
 	s := stsSession{user: user, secret: fmt.Sprintf("tmpsecret%05d", n), token: fmt.Sprintf("tmptoken%05d", n)}
 	f.sessions[ak] = s
 	f.mu.Unlock()

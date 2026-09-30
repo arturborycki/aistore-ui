@@ -15,6 +15,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"sort"
 	"time"
 )
 
@@ -62,14 +63,39 @@ type Session struct {
 	// ClusterErrors records clusters where credential exchange failed at login,
 	// so the UI can explain why a cluster is unavailable.
 	ClusterErrors map[string]string `json:"clusterErrors,omitempty"`
+	// Handle is a public, non-secret identifier for listing and revoking
+	// sessions. It is unrelated to the session ID in the cookie.
+	Handle    string `json:"handle,omitempty"`
+	ClientIP  string `json:"ip,omitempty"`
+	UserAgent string `json:"ua,omitempty"`
 }
 
-// Store persists sessions.
+// Info describes a session for the "active sessions" views; it contains no secrets.
+type Info struct {
+	Handle         string    `json:"handle"`
+	User           User      `json:"user"`
+	CreatedAt      time.Time `json:"createdAt"`
+	LastSeen       time.Time `json:"lastSeen"`
+	AbsoluteExpiry time.Time `json:"expiresAt"`
+	ClientIP       string    `json:"clientIp,omitempty"`
+	UserAgent      string    `json:"userAgent,omitempty"`
+	Current        bool      `json:"current"`
+}
+
+// Store persists sessions and a per-user index of their storage keys.
 type Store interface {
 	Get(ctx context.Context, key string) ([]byte, error)
 	Set(ctx context.Context, key string, value []byte, ttl time.Duration) error
 	Delete(ctx context.Context, key string) error
 	Ping(ctx context.Context) error
+
+	// IndexPut records handle → storage key for subject.
+	IndexPut(ctx context.Context, subject, handle, key string, ttl time.Duration) error
+	IndexDel(ctx context.Context, subject, handle string) error
+	// IndexGet returns handle → storage key for subject.
+	IndexGet(ctx context.Context, subject string) (map[string]string, error)
+	// IndexSubjects lists subjects that have (or recently had) sessions.
+	IndexSubjects(ctx context.Context) ([]string, error)
 }
 
 // Manager seals sessions into a Store.
@@ -108,8 +134,12 @@ func (m *Manager) Create(ctx context.Context, s *Session) (string, error) {
 	s.LastSeen = now
 	s.AbsoluteExpiry = now.Add(m.absTTL)
 	s.CSRFToken = NewID()
+	s.Handle = NewID()[:22]
 	id := NewID()
-	return id, m.Save(ctx, id, s)
+	if err := m.Save(ctx, id, s); err != nil {
+		return "", err
+	}
+	return id, m.store.IndexPut(ctx, s.User.Subject, s.Handle, storageKey(id), m.absTTL)
 }
 
 // Save writes s back to the store with a TTL bounded by both idle and absolute timeouts.
@@ -138,7 +168,10 @@ func (m *Manager) Load(ctx context.Context, id string) (*Session, error) {
 	if len(id) != 43 { // 32 bytes, raw base64url
 		return nil, ErrNotFound
 	}
-	key := storageKey(id)
+	return m.loadKey(ctx, storageKey(id))
+}
+
+func (m *Manager) loadKey(ctx context.Context, key string) (*Session, error) {
 	blob, err := m.store.Get(ctx, key)
 	if err != nil {
 		return nil, err
@@ -173,14 +206,80 @@ func (m *Manager) Delete(ctx context.Context, id string) error {
 	return m.store.Delete(ctx, storageKey(id))
 }
 
+// DeleteSession removes a session and its index entry (logout, revoke).
+func (m *Manager) DeleteSession(ctx context.Context, id string, s *Session) error {
+	if s != nil && s.Handle != "" {
+		_ = m.store.IndexDel(ctx, s.User.Subject, s.Handle)
+	}
+	return m.Delete(ctx, id)
+}
+
 // Rotate moves a session to a new ID (e.g. on privilege change) and deletes the old one.
 func (m *Manager) Rotate(ctx context.Context, oldID string, s *Session) (string, error) {
 	id := NewID()
 	if err := m.Save(ctx, id, s); err != nil {
 		return "", err
 	}
+	if s.Handle != "" {
+		if err := m.store.IndexPut(ctx, s.User.Subject, s.Handle, storageKey(id), s.AbsoluteExpiry.Sub(m.now())); err != nil {
+			return "", err
+		}
+	}
 	_ = m.Delete(ctx, oldID)
 	return id, nil
+}
+
+// List returns the live sessions of subject; stale index entries are pruned.
+// currentHandle marks the caller's own session.
+func (m *Manager) List(ctx context.Context, subject, currentHandle string) ([]Info, error) {
+	idx, err := m.store.IndexGet(ctx, subject)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Info, 0, len(idx))
+	for handle, key := range idx {
+		s, err := m.loadKey(ctx, key)
+		if err != nil || s.User.Subject != subject {
+			_ = m.store.IndexDel(ctx, subject, handle)
+			continue
+		}
+		out = append(out, Info{Handle: handle, User: s.User, CreatedAt: s.CreatedAt, LastSeen: s.LastSeen, AbsoluteExpiry: s.AbsoluteExpiry,
+			ClientIP: s.ClientIP, UserAgent: s.UserAgent, Current: handle == currentHandle})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].LastSeen.After(out[j].LastSeen) })
+	return out, nil
+}
+
+// ListAll returns every live session (administrators).
+func (m *Manager) ListAll(ctx context.Context, currentHandle string) ([]Info, error) {
+	subs, err := m.store.IndexSubjects(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []Info
+	for _, sub := range subs {
+		l, err := m.List(ctx, sub, currentHandle)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, l...)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].LastSeen.After(out[j].LastSeen) })
+	return out, nil
+}
+
+// Revoke ends the session identified by (subject, handle). It reports ErrNotFound if unknown.
+func (m *Manager) Revoke(ctx context.Context, subject, handle string) error {
+	idx, err := m.store.IndexGet(ctx, subject)
+	if err != nil {
+		return err
+	}
+	key, ok := idx[handle]
+	if !ok {
+		return ErrNotFound
+	}
+	_ = m.store.IndexDel(ctx, subject, handle)
+	return m.store.Delete(ctx, key)
 }
 
 func (m *Manager) Ping(ctx context.Context) error { return m.store.Ping(ctx) }

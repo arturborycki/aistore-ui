@@ -66,6 +66,7 @@ func Mount(r chi.Router, d Deps) {
 				serve(w, req, rt, &d)
 			}))
 		}
+		mountSearch(r, &d)
 		r.NotFound(func(w http.ResponseWriter, _ *http.Request) {
 			apierr.Write(w, http.StatusNotFound, "NotFound", "unknown catalog operation")
 		})
@@ -306,6 +307,11 @@ func credentialRejected(resp *http.Response) bool {
 // longer obtain credentials without the user signing in again.
 var ErrReauthenticate = errors.New("re-authentication required")
 
+// ErrCredentialsExpired is returned when the session is still valid but its
+// AIStor credentials expired and cannot be renewed without the user's
+// password (LDAP and access-key sessions). The UI re-authenticates in place.
+var ErrCredentialsExpired = errors.New("AIStor credentials expired")
+
 // ErrClusterUnavailable is returned when credentials for the cluster cannot be obtained.
 var ErrClusterUnavailable = errors.New("cluster unavailable for this session")
 
@@ -313,6 +319,8 @@ func classifyTransportErr(err error) (int, string, string) {
 	switch {
 	case errors.Is(err, ErrReauthenticate):
 		return http.StatusUnauthorized, "SessionExpired", "your session has expired; please sign in again"
+	case errors.Is(err, ErrCredentialsExpired):
+		return http.StatusUnauthorized, "CredentialsExpired", "your AIStor credentials expired; confirm your password to continue"
 	case errors.Is(err, ErrClusterUnavailable):
 		return http.StatusForbidden, "ClusterUnavailable", err.Error()
 	case errors.Is(err, context.Canceled):

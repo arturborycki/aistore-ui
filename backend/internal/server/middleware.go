@@ -240,7 +240,12 @@ func (s *Server) csrf(next http.Handler) http.Handler {
 	})
 }
 
-// limiter is a keyed token-bucket rate limiter with idle eviction.
+// rateLimiter decides whether a request identified by key may proceed.
+type rateLimiter interface {
+	allow(ctx context.Context, key string) bool
+}
+
+// limiter is a process-local keyed token-bucket rate limiter with idle eviction.
 type limiter struct {
 	mu      sync.Mutex
 	perMin  int
@@ -268,7 +273,7 @@ func newLimiter(perMinute int) *limiter {
 	return l
 }
 
-func (l *limiter) allow(key string) bool {
+func (l *limiter) allow(_ context.Context, key string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	b, ok := l.buckets[key]
@@ -284,14 +289,14 @@ func (l *limiter) allow(key string) bool {
 	return b.l.Allow()
 }
 
-func (s *Server) rateLimit(l *limiter, byIP bool) func(http.Handler) http.Handler {
+func (s *Server) rateLimit(l rateLimiter, byIP bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			key := "ip:" + clientIP(r)
 			if st := stateFrom(r); st != nil && !byIP {
 				key = "sess:" + st.id
 			}
-			if !l.allow(key) {
+			if !l.allow(r.Context(), key) {
 				w.Header().Set("Retry-After", "10")
 				apierr.Write(w, http.StatusTooManyRequests, "RateLimited", "too many requests; slow down")
 				return

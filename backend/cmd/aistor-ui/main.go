@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/redis/go-redis/v9"
+
 	"github.com/arturborycki/aistore-ui/backend/internal/audit"
 	"github.com/arturborycki/aistore-ui/backend/internal/config"
 	"github.com/arturborycki/aistore-ui/backend/internal/server"
@@ -78,6 +80,7 @@ func run() error {
 
 	var store session.Store
 	var auditStore audit.Store
+	var redisClient redis.UniversalClient
 	if cfg.Session.Store == "memory" {
 		store = session.NewMemoryStore()
 		auditStore = audit.NewMemoryStore(cfg.Audit.Retain)
@@ -88,6 +91,7 @@ func run() error {
 			return fmt.Errorf("session store: %w", err)
 		}
 		store = rs
+		redisClient = rs.Client()
 		auditStore = audit.NewRedisStore(rs.Client(), cfg.Audit.Retain)
 	}
 
@@ -95,7 +99,8 @@ func run() error {
 		Config:   cfg,
 		Log:      log,
 		Sessions: session.NewManager(store, kr, cfg.Session.IdleTimeout, cfg.Session.AbsoluteTTL),
-		Audit:    audit.NewLogger(log, auditStore, cfg.Audit.WebhookURL),
+		Audit:    audit.NewLogger(log, auditStore, cfg.Audit.WebhookURL, audit.WithWebhookSecret(cfg.Audit.WebhookSecret)),
+		Redis:    redisClient,
 		Static:   web.FS(),
 		Version:  version,
 	})
