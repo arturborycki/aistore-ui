@@ -590,9 +590,9 @@ func (a *API) handleRender(w http.ResponseWriter, req *http.Request) {
 		a.writeErr(w, err)
 		return
 	}
-	w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
+	// Wrapped in JSON so user-supplied text is never reflected as a raw body.
 	w.Header().Set("Cache-Control", "no-store")
-	_, _ = w.Write(b)
+	writeJSON(w, http.StatusOK, map[string]string{"yaml": string(b)})
 }
 
 type datasetStatus struct {

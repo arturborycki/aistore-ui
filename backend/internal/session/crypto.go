@@ -54,7 +54,7 @@ func (k *Keyring) Seal(plaintext, ad []byte) ([]byte, error) {
 	if _, err := rand.Read(nonce); err != nil {
 		return nil, err
 	}
-	out := make([]byte, 0, 1+len(k.primary)+len(nonce)+len(plaintext)+a.Overhead())
+	var out []byte
 	out = append(out, byte(len(k.primary)))
 	out = append(out, k.primary...)
 	out = append(out, nonce...)

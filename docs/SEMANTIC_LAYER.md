@@ -428,7 +428,7 @@ S1–S2 are useful on their own: documented tables, published as standard Ossie 
   - `/.well-known/oauth-protected-resource` points clients at the issuer.
 - **Delete** reads the object and compares its ETag before `DELETE`, because conditional deletes are not universally supported. Saves use conditional `PutObject` (`If-Match` / `If-None-Match: *`).
 - **Editors are recorded** as `x-amz-meta-aistor-ui-editor` on each version. The history view reads it with `HEAD` for the newest 30 versions. Direct S3 writers can set anything there; the audit log is authoritative.
-- **Two helper endpoints** keep previews exact: `POST /semantic/render` (canonical YAML of a draft) and `POST /semantic/parse` (YAML to model, for the YAML editor and repairs).
+- **Two helper endpoints** keep previews exact: `POST /semantic/render` (canonical YAML of a draft, as `{"yaml": …}`) and `POST /semantic/parse` (YAML to model, for the YAML editor and repairs).
 - **Relationship suggestions** match a field to another dataset's single-column primary key by name (`customer_id`, or `id` ↔ `<dataset>_id`) and type.
 - **Not implemented (open question 6):** writing a pointer property into Iceberg tables. Usage is found by scanning models (`semantic.maxScan`), which is enough for the table Semantics tab and the schema-evolution warning.
 - **Upstream conformance:** the official `ossie-schema.json` and the TPC-DS example are vendored under `backend/internal/semantic/`. A unit test imports the example and checks that the canonical output round-trips.

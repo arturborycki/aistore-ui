@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -84,20 +85,20 @@ func (l *Logger) Record(ctx context.Context, r *Record) {
 	}
 	l.log.LogAttrs(ctx, slog.LevelInfo, "audit",
 		slog.Bool("audit", true),
-		slog.String("kind", r.Kind),
-		slog.String("requestId", r.RequestID),
-		slog.String("user", r.Actor.Username),
-		slog.String("sub", r.Actor.Subject),
-		slog.String("clientIp", r.ClientIP),
-		slog.String("operation", r.Operation),
-		slog.String("action", r.Action),
-		slog.String("cluster", r.Cluster),
-		slog.String("resource", r.Resource),
-		slog.String("arn", r.ARN),
+		slog.String("kind", oneLine(r.Kind)),
+		slog.String("requestId", oneLine(r.RequestID)),
+		slog.String("user", oneLine(r.Actor.Username)),
+		slog.String("sub", oneLine(r.Actor.Subject)),
+		slog.String("clientIp", oneLine(r.ClientIP)),
+		slog.String("operation", oneLine(r.Operation)),
+		slog.String("action", oneLine(r.Action)),
+		slog.String("cluster", oneLine(r.Cluster)),
+		slog.String("resource", oneLine(r.Resource)),
+		slog.String("arn", oneLine(r.ARN)),
 		slog.Any("params", r.Params),
 		slog.Int("status", r.Status),
-		slog.String("outcome", r.Outcome),
-		slog.String("error", r.Error),
+		slog.String("outcome", oneLine(r.Outcome)),
+		slog.String("error", oneLine(r.Error)),
 		slog.Int64("durationMs", r.DurationMs),
 	)
 	if l.store != nil {
@@ -265,4 +266,10 @@ func (s *RedisStore) List(ctx context.Context, subject string, limit int) ([]Rec
 		}
 	}
 	return out, nil
+}
+
+// oneLine strips line breaks so a logged value cannot forge extra log lines
+// (the handlers escape them too, but plain-text sinks may not).
+func oneLine(s string) string {
+	return strings.NewReplacer("\n", " ", "\r", " ").Replace(s)
 }

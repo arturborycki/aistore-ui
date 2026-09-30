@@ -144,7 +144,7 @@ func findExt(exts []Extension, out any) bool {
 
 func setExt(exts []Extension, v any) []Extension {
 	b, _ := json.Marshal(v)
-	out := make([]Extension, 0, len(exts)+1)
+	var out []Extension
 	done := false
 	for _, e := range exts {
 		if e.VendorName == VendorName {

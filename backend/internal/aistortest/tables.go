@@ -365,7 +365,7 @@ func previewRows(t *tableState, limit int) map[string]any {
 	for _, f := range cur {
 		cols = append(cols, map[string]any{"name": f["name"], "type": arrowType(f["type"])})
 	}
-	n := int(min(int64(limit), max(t.records, 0)))
+	n := int(min(int64(min(max(limit, 0), 10_000)), max(t.records, 0)))
 	if len(arr(md["snapshots"])) == 0 {
 		n = 0
 	}

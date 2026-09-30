@@ -73,7 +73,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Trivy (report)
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@v0.33.1
         with:
           image-ref: aistor-catalog-ui:scan
           format: sarif
@@ -83,7 +83,7 @@ jobs:
         if: always()
         with: { sarif_file: trivy.sarif, category: trivy-image }
       - name: Trivy (gate on fixable high/critical)
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@v0.33.1
         with:
           image-ref: aistor-catalog-ui:scan
           severity: HIGH,CRITICAL
@@ -104,7 +104,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Trivy misconfiguration scan (Dockerfile, Kubernetes, Helm)
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@v0.33.1
         with:
           scan-type: config
           scan-ref: .

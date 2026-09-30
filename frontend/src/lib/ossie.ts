@@ -205,7 +205,7 @@ export const ossie = {
     await api.request('DELETE', modelUrl(c, wh, ns, m), { headers: { 'If-Match': etag } })
   },
   versions: async (c: string, wh: string, ns: Namespace, m: string) => (await api.get<{ versions: ModelVersion[] }>(`${modelUrl(c, wh, ns, m)}/versions`)).data.versions,
-  render: async (c: string, model: OssieModel, signal?: AbortSignal) => (await api.post<string>(`${base(c)}/render`, { model }, { text: true, signal })).data,
+  render: async (c: string, model: OssieModel, signal?: AbortSignal) => (await api.post<{ yaml: string }>(`${base(c)}/render`, { model }, { signal })).data.yaml,
   yaml: async (c: string, wh: string, ns: Namespace, m: string, version?: string) =>
     (await api.get<string>(modelUrl(c, wh, ns, m), { query: { format: 'yaml', version }, text: true })).data,
   parse: async (c: string, raw: string) => (await api.post<{ model: OssieModel | null; problems: Problem[] }>(`${base(c)}/parse`, { raw })).data,

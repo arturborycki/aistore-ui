@@ -87,24 +87,24 @@ type PartitionValue struct {
 }
 
 type File struct {
-	Path      string            `json:"path"`
-	Content   string            `json:"content"` // data | position-deletes | equality-deletes
-	Format    string            `json:"format"`
-	SpecID    int               `json:"specId"`
+	Path      string           `json:"path"`
+	Content   string           `json:"content"` // data | position-deletes | equality-deletes
+	Format    string           `json:"format"`
+	SpecID    int              `json:"specId"`
 	Partition []PartitionValue `json:"partition,omitempty"`
-	Records   int64             `json:"records"`
-	Size      int64             `json:"size"`
-	Status    string            `json:"status"` // added | existing
-	Sequence  int64             `json:"sequenceNumber,omitempty"`
+	Records   int64            `json:"records"`
+	Size      int64            `json:"size"`
+	Status    string           `json:"status"` // added | existing
+	Sequence  int64            `json:"sequenceNumber,omitempty"`
 }
 
 type Partition struct {
 	SpecID      int              `json:"specId"`
 	Values      []PartitionValue `json:"values"`
-	Records     int64             `json:"records"`
-	Files       int               `json:"files"`
-	Size        int64             `json:"size"`
-	DeleteFiles int               `json:"deleteFiles"`
+	Records     int64            `json:"records"`
+	Files       int              `json:"files"`
+	Size        int64            `json:"size"`
+	DeleteFiles int              `json:"deleteFiles"`
 }
 
 type Column struct {
