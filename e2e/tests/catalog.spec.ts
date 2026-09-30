@@ -84,7 +84,7 @@ test('create, browse, edit and delete with step-up', async ({ page }) => {
     await page.getByRole('menuitem', { name: /Delete namespace/ }).click()
     await page.getByLabel(/Type/).fill(leaf)
     await page.getByRole('button', { name: 'Delete namespace' }).click()
-    await expect(page.getByText('Namespace deleted')).toBeVisible()
+    await expect(page.getByText('Namespace deleted').first()).toBeVisible()
   }
   await expect(page).toHaveURL(/\/wh\/e2e-lake$/)
 

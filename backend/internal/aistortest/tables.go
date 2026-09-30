@@ -6,7 +6,6 @@ import (
 	"hash/fnv"
 	"math/rand"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -22,8 +21,11 @@ type tableState struct {
 	metaLoc  string
 	schemaIx int // index into templates
 	maint    map[string]map[string]any
+	maintCfg map[string]any
 	tags     map[string]string
 	sse      string
+	kmsKey   string
+	version  int
 }
 
 type viewState struct {
@@ -261,7 +263,8 @@ func newTable(wh string, ns []string, name string, records, size int64, ix int) 
 		}
 		maint[t] = e
 	}
-	return &tableState{name: name, uuid: uuid, records: total, size: size, metadata: md, metaLoc: metaLoc, schemaIx: ix, maint: maint,
+	return &tableState{name: name, uuid: uuid, records: total, size: size, metadata: normalize(md).(map[string]any), metaLoc: metaLoc, schemaIx: ix, maint: maint,
+		maintCfg: defaultTableMaintenance(), version: nSnaps + 1,
 		tags: map[string]string{"cost-center": "cc-" + strconv.Itoa(1000+r.Intn(8999)), "pii": strconv.FormatBool(ix%3 == 0)}, sse: "AES256"}
 }
 
@@ -295,7 +298,7 @@ func newView(wh string, ns []string, name string, source string) *viewState {
 		"version-log": []any{map[string]any{"version-id": 1, "timestamp-ms": now.Add(-30 * 24 * time.Hour).UnixMilli()}, map[string]any{"version-id": 2, "timestamp-ms": now.Add(-3 * 24 * time.Hour).UnixMilli()}},
 		"properties":  map[string]any{"comment": "Monthly revenue per customer", "owner": ns[0] + "-team"},
 	}
-	return &viewState{name: name, metadata: md, metaLoc: fmt.Sprintf("s3://%s/.aistor-tables/%s/%s/metadata/00002.metadata.json", wh, strings.Join(ns, "/"), name)}
+	return &viewState{name: name, metadata: normalize(md).(map[string]any), metaLoc: fmt.Sprintf("s3://%s/.aistor-tables/%s/%s/metadata/00002.metadata.json", wh, strings.Join(ns, "/"), name)}
 }
 
 // populate creates count tables (and one view per namespace with tables).
@@ -329,97 +332,6 @@ func (ns *nsState) recompute() {
 
 // ---------------------------------------------------------------- handlers
 
-func (c *Catalog) handleTables(w http.ResponseWriter, r *http.Request, wh *whState, ns *nsState, rest []string, q url.Values) {
-	if ns.tbl == nil {
-		ns.tbl = map[string]*tableState{}
-	}
-	if len(rest) == 0 {
-		switch r.Method {
-		case "GET":
-			names := make([]string, 0, len(ns.tbl))
-			for n := range ns.tbl {
-				names = append(names, n)
-			}
-			lr := parseList(q)
-			st := func(n string) stats { t := ns.tbl[n]; return stats{Records: t.records, Size: t.size} }
-			page, next := lr.apply(w, names, st)
-			ids := make([]any, 0, len(page))
-			m := map[string]stats{}
-			for _, n := range page {
-				ids = append(ids, map[string]any{"namespace": ns.levels, "name": n})
-				m[n] = st(n)
-			}
-			resp := map[string]any{"identifiers": ids}
-			if next != "" {
-				resp["next-page-token"] = next
-			}
-			if lr.stats {
-				resp["stats"] = m
-			}
-			writeJSON(w, 200, resp)
-		case "POST":
-			var body struct {
-				Name string `json:"name"`
-			}
-			_ = json.NewDecoder(r.Body).Decode(&body)
-			if _, ok := ns.tbl[body.Name]; ok {
-				iceErr(w, 409, "AlreadyExistsException", "table already exists: "+body.Name)
-				return
-			}
-			t := newTable(wh.name, ns.levels, body.Name, 0, 0, len(ns.tbl))
-			ns.tbl[body.Name] = t
-			ns.recompute()
-			writeJSON(w, 200, map[string]any{"metadata": t.metadata, "metadata-location": t.metaLoc, "config": map[string]any{}})
-		}
-		return
-	}
-	t, ok := ns.tbl[rest[0]]
-	if !ok {
-		iceErr(w, 404, "NoSuchTableException", "table does not exist: "+strings.Join(append(append([]string{}, ns.levels...), rest[0]), "."))
-		return
-	}
-	sub := ""
-	if len(rest) > 1 {
-		sub = strings.Join(rest[1:], "/")
-	}
-	switch {
-	case sub == "" && r.Method == "GET":
-		md := t.metadata
-		if q.Get("snapshots") == "refs" {
-			md = withRefSnapshotsOnly(md)
-		}
-		// Real catalogs may include storage config; the BFF must strip it.
-		writeJSON(w, 200, map[string]any{"metadata": md, "metadata-location": t.metaLoc,
-			"config": map[string]any{"s3.access-key-id": "SHOULD-NOT-LEAK", "s3.secret-access-key": "SHOULD-NOT-LEAK", "s3.delete-enabled": "false"}})
-	case sub == "" && r.Method == "POST":
-		c.commitTable(w, r, t)
-	case sub == "" && r.Method == "DELETE":
-		delete(ns.tbl, rest[0])
-		ns.recompute()
-		w.WriteHeader(204)
-	case sub == "preview":
-		limit, _ := strconv.Atoi(q.Get("limit"))
-		if limit <= 0 {
-			limit = 100
-		}
-		writeJSON(w, 200, previewRows(t, min(limit, 1000)))
-	case sub == "maintenance-job-status":
-		writeJSON(w, 200, map[string]any{"tableARN": fmt.Sprintf("arn:aws:s3tables:::bucket/%s/table/%s", wh.name, t.uuid), "status": t.maint})
-	case sub == "maintenance" && r.Method == "GET":
-		writeJSON(w, 200, map[string]any{"tableARN": fmt.Sprintf("arn:aws:s3tables:::bucket/%s/table/%s", wh.name, t.uuid), "configuration": map[string]any{
-			"icebergCompaction":              map[string]any{"status": "enabled", "settings": map[string]any{"icebergCompaction": map[string]any{"targetFileSizeMB": 512}}},
-			"icebergSnapshotManagement":      map[string]any{"status": "enabled", "settings": map[string]any{"icebergSnapshotManagement": map[string]any{"minSnapshotsToKeep": 1, "maxSnapshotAgeHours": 120}}},
-			"icebergUnreferencedFileRemoval": map[string]any{"status": "enabled", "settings": map[string]any{"icebergUnreferencedFileRemoval": map[string]any{"unreferencedDays": 3, "nonCurrentDays": 10}}},
-		}})
-	case sub == "encryption" && r.Method == "GET":
-		writeJSON(w, 200, map[string]any{"encryptionConfiguration": map[string]any{"sseAlgorithm": t.sse}})
-	case sub == "tags" && r.Method == "GET":
-		writeJSON(w, 200, map[string]any{"tags": t.tags})
-	default:
-		iceErr(w, 404, "NotFound", "no such route in test catalog")
-	}
-}
-
 func withRefSnapshotsOnly(md map[string]any) map[string]any {
 	out := map[string]any{}
 	for k, v := range md {
@@ -439,56 +351,24 @@ func withRefSnapshotsOnly(md map[string]any) map[string]any {
 	return out
 }
 
-func (c *Catalog) commitTable(w http.ResponseWriter, r *http.Request, t *tableState) {
-	var body struct {
-		Requirements []map[string]any `json:"requirements"`
-		Updates      []map[string]any `json:"updates"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		iceErr(w, 400, "BadRequestException", "malformed commit")
-		return
-	}
-	for _, req := range body.Requirements {
-		if req["type"] == "assert-table-uuid" && req["uuid"] != t.uuid {
-			iceErr(w, 409, "CommitFailedException", "Requirement failed: UUID does not match")
-			return
-		}
-		if req["type"] == "assert-current-schema-id" && fmt.Sprint(req["current-schema-id"]) != fmt.Sprint(t.metadata["current-schema-id"]) {
-			iceErr(w, 409, "CommitFailedException", "Requirement failed: current schema changed")
-			return
-		}
-	}
-	props := t.metadata["properties"].(map[string]any)
-	for _, u := range body.Updates {
-		switch u["action"] {
-		case "set-properties":
-			for k, v := range u["updates"].(map[string]any) {
-				props[k] = v
-			}
-		case "remove-properties":
-			for _, k := range u["removals"].([]any) {
-				delete(props, k.(string))
-			}
-		default:
-			iceErr(w, 400, "BadRequestException", fmt.Sprintf("test catalog does not implement %v", u["action"]))
-			return
-		}
-	}
-	t.metadata["last-updated-ms"] = time.Now().UnixMilli()
-	writeJSON(w, 200, map[string]any{"metadata": t.metadata, "metadata-location": t.metaLoc})
-}
-
 // previewRows produces Arrow-typed rows matching the current schema.
 func previewRows(t *tableState, limit int) map[string]any {
 	md := t.metadata
-	schemas := md["schemas"].([]any)
-	cur := schemas[len(schemas)-1].(map[string]any)["fields"].([]field)
+	var cur []map[string]any
+	for _, sc := range arr(md["schemas"]) {
+		if numEq(obj(sc)["schema-id"], md["current-schema-id"]) {
+			cur = fieldsOf(obj(sc)["fields"])
+		}
+	}
 	r := seeded(t.uuid, "preview")
 	var cols []any
 	for _, f := range cur {
 		cols = append(cols, map[string]any{"name": f["name"], "type": arrowType(f["type"])})
 	}
 	n := int(min(int64(limit), max(t.records, 0)))
+	if len(arr(md["snapshots"])) == 0 {
+		n = 0
+	}
 	rows := make([]any, 0, n)
 	base := time.Now().Add(-72 * time.Hour)
 	for i := 0; i < n; i++ {
@@ -533,7 +413,7 @@ func arrowType(t any) string {
 			return "map<" + arrowType(v["key"]) + ", " + arrowType(v["value"]) + ">"
 		case "struct":
 			var parts []string
-			for _, f := range v["fields"].([]field) {
+			for _, f := range fieldsOf(v["fields"]) {
 				parts = append(parts, fmt.Sprintf("%s: %s", f["name"], arrowType(f["type"])))
 			}
 			return "struct<" + strings.Join(parts, ", ") + ">"
@@ -600,41 +480,13 @@ func sampleValue(name string, t any, r *rand.Rand, i int, base time.Time) any {
 			return map[string]any{"source": "import", "tier": []string{"gold", "silver"}[r.Intn(2)]}
 		case "struct":
 			out := map[string]any{}
-			for _, f := range v["fields"].([]field) {
+			for _, f := range fieldsOf(v["fields"]) {
 				out[f["name"].(string)] = sampleValue(f["name"].(string), f["type"], r, i, base)
 			}
 			return out
 		}
 	}
 	return nil
-}
-
-func (c *Catalog) handleViews(w http.ResponseWriter, r *http.Request, ns *nsState, rest []string) {
-	if ns.views == nil {
-		ns.views = map[string]*viewState{}
-	}
-	if len(rest) == 0 {
-		ids := []any{}
-		for n := range ns.views {
-			ids = append(ids, map[string]any{"namespace": ns.levels, "name": n})
-		}
-		writeJSON(w, 200, map[string]any{"identifiers": ids})
-		return
-	}
-	v, ok := ns.views[rest[0]]
-	if !ok {
-		iceErr(w, 404, "NoSuchViewException", "view does not exist: "+rest[0])
-		return
-	}
-	switch r.Method {
-	case "GET":
-		writeJSON(w, 200, map[string]any{"metadata": v.metadata, "metadata-location": v.metaLoc, "config": map[string]any{}})
-	case "DELETE":
-		delete(ns.views, rest[0])
-		w.WriteHeader(204)
-	default:
-		iceErr(w, 400, "BadRequestException", "not implemented in test catalog")
-	}
 }
 
 // rename moves a table or view between namespaces of a warehouse.

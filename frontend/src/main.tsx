@@ -10,6 +10,7 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { ToastProvider } from '@/components/ui/toast'
 import { applyTheme, ThemeProvider, type ThemePref } from '@/layout/theme'
 import { App } from './App'
+import { ChangeSetProvider } from '@/features/changeset/ChangeSet'
 import './index.css'
 
 // The server injects a per-response CSP nonce; libraries that create <style>
@@ -39,7 +40,9 @@ createRoot(document.getElementById('root')!).render(
           <TooltipProvider>
             <ToastProvider>
               <AuthProvider>
-                <App />
+                <ChangeSetProvider>
+                  <App />
+                </ChangeSetProvider>
               </AuthProvider>
             </ToastProvider>
           </TooltipProvider>

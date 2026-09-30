@@ -11,6 +11,7 @@ import { NamespacePage } from '@/features/namespaces/NamespacePage'
 import { ActivityPage } from '@/features/activity/ActivityPage'
 import { TablePage } from '@/features/tables/TablePage'
 import { ViewPage } from '@/features/views/ViewPage'
+import { CreateTablePage } from '@/features/tables/CreateTablePage'
 import { EmptyState } from '@/components/ui/states'
 
 function HomeRedirect() {
@@ -50,6 +51,7 @@ export function App() {
         <Route path="/c/:cluster/warehouses" element={<WarehousesPage />} />
         <Route path="/c/:cluster/wh/:wh" element={<WarehousePage />} />
         <Route path="/c/:cluster/wh/:wh/ns/:ns" element={<NamespacePage />} />
+        <Route path="/c/:cluster/wh/:wh/ns/:ns/new-table" element={<CreateTablePage />} />
         <Route path="/c/:cluster/wh/:wh/ns/:ns/t/:table" element={<TablePage />} />
         <Route path="/c/:cluster/wh/:wh/ns/:ns/v/:view" element={<ViewPage />} />
         <Route path="/c/:cluster/activity" element={<ActivityPage />} />

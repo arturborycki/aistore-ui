@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useParams, useSearchParams } from 'react-router'
 import {
+  ArrowUpCircle,
   Ellipsis,
+  GitCompare,
   FileJson,
   GitCommitHorizontal,
   Info,
@@ -26,11 +28,11 @@ import { Card, CardHeader, KeyValue, PageHeader, StatCard } from '@/components/u
 import { Skeleton } from '@/components/ui/skeleton'
 import { ErrorState } from '@/components/ui/states'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { useToast } from '@/components/ui/toast'
 import { Tooltip } from '@/components/ui/tooltip'
 import { TypeChip } from '@/components/ui/type-chip'
-import { ApiError } from '@/lib/api'
-import { commitTableProperties, loadTable, resourceArn } from '@/lib/catalog'
+import { loadTable, resourceArn } from '@/lib/catalog'
+import { propertiesChange } from '@/lib/commits'
+import type { Int64 } from '@/lib/json'
 import { cn } from '@/lib/cn'
 import { formatBytes, formatCompact, formatDateTime, formatNumber, formatRelative } from '@/lib/format'
 import { currentSchema, currentSnapshot, fieldNames, summaryNumber, transformLabel, type LoadTableResult } from '@/lib/iceberg'
@@ -40,7 +42,9 @@ import { paths } from '@/layout/paths'
 import { useCluster } from '@/layout/useCluster'
 import { AccessPanel } from '@/features/warehouses/AccessPanel'
 import { PropertiesEditor } from '@/features/namespaces/PropertiesEditor'
+import { CommitBar, useTableCommit } from './CommitBar'
 import { DropTableDialog, RenameDialog } from './EntityDialogs'
+import { EvolvePartitionDialog, EvolveSchemaDialog, EvolveSortDialog, RefDialog, RemoveRefDialog, RollbackDialog, UpgradeFormatDialog } from './EvolveDialogs'
 import { MaintenanceHealthBadge, MaintenanceTab, useMaintenanceStatus } from './MaintenanceTab'
 import { MetadataTab } from './MetadataTab'
 import { PartitionsTab } from './PartitionsTab'
@@ -124,23 +128,21 @@ export function TablePage() {
   const [search, setSearch] = useSearchParams()
   const tab = search.get('tab') ?? 'overview'
   const navigate = useNavigate()
-  const qc = useQueryClient()
-  const toast = useToast()
   const [renaming, setRenaming] = useState(false)
   const [dropping, setDropping] = useState(false)
+  type DialogState =
+    | { kind: 'schema' | 'spec' | 'sort' | 'upgrade' }
+    | { kind: 'rollback'; snapshot: Int64 }
+    | { kind: 'ref'; snapshot?: Int64; name?: string }
+    | { kind: 'remove-ref'; name: string }
+    | null
+  const [dialog, setDialog] = useState<DialogState>(null)
+  const commit = useTableCommit(cluster, wh, ns, table)
+  const identifier = useMemo(() => ({ namespace: ns, name: table }), [ns, table])
 
   const key = qk.table(cluster, wh, ns, table)
   const q = useQuery({ queryKey: key, queryFn: () => loadTable(cluster, wh, ns, table) })
   const maint = useMaintenanceStatus(cluster, wh, ns, table)
-  const saveProps = useMutation({
-    mutationFn: (c: { updates: Record<string, string>; removals: string[] }) => commitTableProperties(cluster, wh, ns, table, q.data!.metadata['table-uuid'], c.updates, c.removals),
-    onSuccess: (r) => {
-      if (r?.metadata) qc.setQueryData(key, (old: LoadTableResult | undefined) => (old ? { ...old, ...r } : r))
-      else void qc.invalidateQueries({ queryKey: key })
-      toast.success('Table properties saved', 'Committed atomically as a new metadata version.')
-    },
-  })
-
   const header = (
     <PageHeader
       icon={<EntityBadgeIcon kind="table" />}
@@ -182,6 +184,11 @@ export function TablePage() {
               <MenuItem icon={<Pencil />} onSelect={() => setRenaming(true)}>
                 Rename or move…
               </MenuItem>
+              {q.data && q.data.metadata['format-version'] < 3 && (
+                <MenuItem icon={<ArrowUpCircle />} onSelect={() => setDialog({ kind: 'upgrade' })}>
+                  Upgrade to Iceberg v{q.data.metadata['format-version'] + 1}…
+                </MenuItem>
+              )}
               <MenuSeparator />
               <MenuItem icon={<Trash2 />} danger onSelect={() => setDropping(true)}>
                 Drop table…
@@ -257,27 +264,45 @@ export function TablePage() {
           <PreviewTab cluster={cluster} wh={wh} ns={ns} table={table} currentSnapshot={snap ? String(snap['snapshot-id']) : undefined} />
         </TabsContent>
         <TabsContent value="schema">
+          <div className="mb-3 flex justify-end">
+            <Button variant="outline" onClick={() => setDialog({ kind: 'schema' })}>
+              <GitCompare /> Evolve schema
+            </Button>
+          </div>
           <SchemaTree schemas={md.schemas} currentId={md['current-schema-id']} markers={markers} />
         </TabsContent>
         <TabsContent value="partitions">
-          <PartitionsTab md={md} schema={schema} />
+          <PartitionsTab md={md} schema={schema} onEvolveSpec={() => setDialog({ kind: 'spec' })} onEvolveSort={() => setDialog({ kind: 'sort' })} />
         </TabsContent>
         <TabsContent value="snapshots">
-          <SnapshotsTab md={md} />
+          <SnapshotsTab
+            md={md}
+            actions={{
+              onRollback: (snapshot) => setDialog({ kind: 'rollback', snapshot }),
+              onCreateRef: (snapshot) => setDialog({ kind: 'ref', snapshot }),
+              onEditRef: (name) => setDialog({ kind: 'ref', name }),
+              onRemoveRef: (name) => setDialog({ kind: 'remove-ref', name }),
+            }}
+          />
         </TabsContent>
         <TabsContent value="maintenance">
           <MaintenanceTab cluster={cluster} wh={wh} ns={ns} table={table} />
         </TabsContent>
         <TabsContent value="properties">
           <Card>
-            <CardHeader title="Table properties" description="Saved as one atomic commit (set-properties / remove-properties), guarded by the table UUID." />
+            <CardHeader title="Table properties" description="Committed atomically (set-properties / remove-properties), guarded by the table UUID." />
             <div className="p-4">
               <PropertiesEditor
                 properties={md.properties ?? {}}
-                onSave={(c) => saveProps.mutate(c)}
-                saving={saveProps.isPending}
-                error={saveProps.error instanceof ApiError && saveProps.error.isConflict ? new Error('The table changed while you were editing. Reload and try again.') : saveProps.error}
+                onSave={(c) => commit.apply(propertiesChange(md, identifier, c.updates, c.removals))}
+                onStage={(c) => commit.stage(propertiesChange(md, identifier, c.updates, c.removals))}
+                saving={commit.pending}
               />
+              {commit.error != null && !dialog && (
+                <div className="mt-3">
+                  <CommitBarErrorOnly commit={commit} />
+                </div>
+              )}
             </div>
           </Card>
         </TabsContent>
@@ -292,6 +317,26 @@ export function TablePage() {
         </TabsContent>
       </Tabs>
 
+      {(() => {
+        const base = { md, id: identifier, commit, onOpenChange: (v: boolean) => !v && setDialog(null) }
+        switch (dialog?.kind) {
+          case 'schema':
+            return <EvolveSchemaDialog {...base} open />
+          case 'spec':
+            return <EvolvePartitionDialog {...base} open />
+          case 'sort':
+            return <EvolveSortDialog {...base} open />
+          case 'upgrade':
+            return <UpgradeFormatDialog {...base} open />
+          case 'rollback':
+            return <RollbackDialog {...base} open snapshotId={dialog.snapshot} />
+          case 'ref':
+            return <RefDialog {...base} open snapshotId={dialog.snapshot} editName={dialog.name} />
+          case 'remove-ref':
+            return <RemoveRefDialog {...base} open name={dialog.name} />
+        }
+        return null
+      })()}
       <RenameDialog
         kind="table"
         cluster={cluster}
@@ -305,4 +350,9 @@ export function TablePage() {
       <DropTableDialog cluster={cluster} wh={wh} ns={ns} name={table} open={dropping} onOpenChange={setDropping} onDropped={() => navigate(`${paths.namespace(cluster, wh, ns)}?tab=tables`, { replace: true })} />
     </div>
   )
+}
+
+/** Shows the last commit error (e.g. a 409 conflict) outside of a dialog. */
+function CommitBarErrorOnly({ commit }: { commit: ReturnType<typeof useTableCommit> }) {
+  return <CommitBar commit={commit} build={() => null} errorsOnly />
 }

@@ -1,10 +1,11 @@
-import { ArrowDown, ArrowUp, Layers } from 'lucide-react'
+import { ArrowDown, ArrowUp, Layers, Pencil } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardHeader } from '@/components/ui/layout'
 import { EmptyState } from '@/components/ui/states'
 import { fieldNames, transformLabel, type Schema, type TableMetadata } from '@/lib/iceberg'
 
-export function PartitionsTab({ md, schema }: { md: TableMetadata; schema: Schema }) {
+export function PartitionsTab({ md, schema, onEvolveSpec, onEvolveSort }: { md: TableMetadata; schema: Schema; onEvolveSpec?: () => void; onEvolveSort?: () => void }) {
   const names = fieldNames(schema)
   const col = (id: number) => names.get(id) ?? `#${id} (dropped)`
   const specs = [...md['partition-specs']].sort((a, b) => b['spec-id'] - a['spec-id'])
@@ -13,7 +14,11 @@ export function PartitionsTab({ md, schema }: { md: TableMetadata; schema: Schem
   return (
     <div className="grid gap-4 xl:grid-cols-2">
       <Card>
-        <CardHeader title="Partition specs" description="New data is written with the default spec; older files keep the spec they were written with." />
+        <CardHeader
+          title="Partition specs"
+          description="New data is written with the default spec; older files keep the spec they were written with."
+          actions={onEvolveSpec && <Button size="sm" variant="outline" onClick={onEvolveSpec}><Pencil /> Evolve</Button>}
+        />
         <div className="flex flex-col divide-y divide-border">
           {specs.map((s) => {
             const isDefault = s['spec-id'] === md['default-spec-id']
@@ -51,7 +56,11 @@ export function PartitionsTab({ md, schema }: { md: TableMetadata; schema: Schem
         </div>
       </Card>
       <Card>
-        <CardHeader title="Sort orders" description="How writers order rows within data files." />
+        <CardHeader
+          title="Sort orders"
+          description="How writers order rows within data files."
+          actions={onEvolveSort && <Button size="sm" variant="outline" onClick={onEvolveSort}><Pencil /> Change</Button>}
+        />
         <div className="flex flex-col divide-y divide-border">
           {orders.map((o) => (
             <div key={o['order-id']} className="px-4 py-3">

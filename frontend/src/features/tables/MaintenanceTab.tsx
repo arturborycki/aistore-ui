@@ -1,12 +1,13 @@
 import { useQuery } from '@tanstack/react-query'
+import { MaintenanceSettings } from '@/features/settings/SettingsEditors'
 import { CircleCheck, CircleDashed, CircleOff, CircleX, Wrench } from 'lucide-react'
 import { Badge, type Tone } from '@/components/ui/badge'
-import { Card, CardHeader, KeyValue } from '@/components/ui/layout'
+import { Card } from '@/components/ui/layout'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ErrorState } from '@/components/ui/states'
 import { Tooltip } from '@/components/ui/tooltip'
-import { getTableMaintenanceConfig, getTableMaintenanceStatus, type MaintenanceJobStatus, type MaintenanceType } from '@/lib/catalog'
-import { formatDateTime, formatRelative, humanize } from '@/lib/format'
+import { deleteTableMaintenance, getTableMaintenanceConfig, getTableMaintenanceStatus, putTableMaintenance, type MaintenanceJobStatus, type MaintenanceType } from '@/lib/catalog'
+import { formatDateTime, formatRelative } from '@/lib/format'
 import type { Namespace } from '@/lib/namespace'
 import { qk } from '@/lib/queryKeys'
 
@@ -56,65 +57,58 @@ export function MaintenanceHealthBadge({ status }: { status?: Partial<Record<Mai
   )
 }
 
-function flattenSettings(v: unknown, prefix = ''): { label: string; value: string }[] {
-  if (v == null || typeof v !== 'object') return [{ label: prefix || 'value', value: String(v) }]
-  return Object.entries(v as Record<string, unknown>).flatMap(([k, x]) =>
-    x != null && typeof x === 'object' ? flattenSettings(x, prefix ? `${prefix} · ${humanize(k)}` : humanize(k)) : [{ label: prefix ? `${prefix} · ${humanize(k)}` : humanize(k), value: String(x) }],
-  )
-}
-
 export function MaintenanceTab({ cluster, wh, ns, table }: { cluster: string; wh: string; ns: Namespace; table: string }) {
   const status = useMaintenanceStatus(cluster, wh, ns, table)
-  const config = useQuery({ queryKey: [...qk.table(cluster, wh, ns, table), 'maintenance-config'], queryFn: () => getTableMaintenanceConfig(cluster, wh, ns, table) })
-  const cfg = (config.data?.configuration ?? config.data ?? {}) as Record<string, { status?: string; settings?: Record<string, unknown> } | undefined>
-
-  if (status.isError) return <ErrorState error={status.error} onRetry={() => status.refetch()} />
+  const key = qk.table(cluster, wh, ns, table)
   return (
-    <div className="grid gap-4 lg:grid-cols-3">
-      {MAINTENANCE.map((m) => {
-        const s = status.data?.status?.[m.type]
-        const meta = statusMeta(s?.status)
-        const c = cfg[m.type]
-        const settings = c?.settings ? flattenSettings((c.settings as Record<string, unknown>)[m.type] ?? c.settings) : []
-        return (
-          <Card key={m.type}>
-            <CardHeader title={m.title} description={m.description} />
-            <div className="flex flex-col gap-3 p-4">
-              {status.isPending ? (
-                <Skeleton className="h-16" />
-              ) : (
-                <>
-                  <div className="flex items-center justify-between">
-                    <Badge tone={meta.tone}>
-                      {meta.icon}
-                      {meta.label}
-                    </Badge>
-                    {s?.lastRunTimestamp && (
-                      <Tooltip content={formatDateTime(s.lastRunTimestamp)}>
-                        <span className="text-[12px] text-muted">Last run {formatRelative(s.lastRunTimestamp)}</span>
-                      </Tooltip>
+    <div className="flex flex-col gap-5">
+      <section className="flex flex-col gap-2">
+        <h3 className="text-[12px] font-medium uppercase tracking-wide text-subtle">Last runs</h3>
+        {status.isError ? (
+          <ErrorState error={status.error} compact onRetry={() => status.refetch()} />
+        ) : (
+          <div className="grid gap-3 lg:grid-cols-3">
+            {MAINTENANCE.map((m) => {
+              const s = status.data?.status?.[m.type]
+              const meta = statusMeta(s?.status)
+              return (
+                <Card key={m.type} className="px-4 py-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[13px] font-medium">{m.title}</span>
+                    {status.isPending ? (
+                      <Skeleton className="h-5 w-20" />
+                    ) : (
+                      <Badge tone={meta.tone}>
+                        {meta.icon}
+                        {meta.label}
+                      </Badge>
                     )}
                   </div>
-                  {s?.failureMessage && <p className="rounded-[var(--radius-control)] bg-danger-subtle px-2.5 py-1.5 font-mono text-[12px] text-danger">{s.failureMessage}</p>}
-                  {!s && <p className="text-[12.5px] text-subtle">Not configured for this table.</p>}
-                </>
-              )}
-              <div className="border-t border-border pt-3">
-                <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-subtle">Configuration</div>
-                {config.isPending ? (
-                  <Skeleton className="h-10" />
-                ) : config.isError ? (
-                  <ErrorState error={config.error} compact />
-                ) : c ? (
-                  <KeyValue items={[{ label: 'Status', value: c.status ?? '—' }, ...settings.map((x) => ({ label: x.label, value: <span className="font-mono text-[12px]">{x.value}</span> }))]} />
-                ) : (
-                  <p className="text-[12.5px] text-subtle">Inherits the warehouse defaults.</p>
-                )}
-              </div>
-            </div>
-          </Card>
-        )
-      })}
+                  {s?.lastRunTimestamp && (
+                    <Tooltip content={formatDateTime(s.lastRunTimestamp)}>
+                      <span className="text-[12px] text-muted">Last run {formatRelative(s.lastRunTimestamp)}</span>
+                    </Tooltip>
+                  )}
+                  {s?.failureMessage && <p className="mt-2 rounded-[var(--radius-control)] bg-danger-subtle px-2.5 py-1.5 font-mono text-[12px] text-danger">{s.failureMessage}</p>}
+                </Card>
+              )
+            })}
+          </div>
+        )}
+      </section>
+      <section className="flex flex-col gap-2">
+        <h3 className="text-[12px] font-medium uppercase tracking-wide text-subtle">Configuration</h3>
+        <MaintenanceSettings
+          queryKey={[...key, 'maintenance-config']}
+          types={MAINTENANCE.map((m) => m.type)}
+          load={() => getTableMaintenanceConfig(cluster, wh, ns, table)}
+          save={async (t, v) => {
+            await putTableMaintenance(cluster, wh, ns, table, t, v)
+            void status.refetch()
+          }}
+          reset={(t) => deleteTableMaintenance(cluster, wh, ns, table, t)}
+        />
+      </section>
     </div>
   )
 }

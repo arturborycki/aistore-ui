@@ -71,6 +71,7 @@ func TestCommitValidation(t *testing.T) {
 		"wrong ident":    `{"identifier":{"namespace":["b"],"name":"t"},"requirements":[],"updates":[{"action":"set-properties","updates":{"k":"v"}}]}`,
 		"empty":          `{"requirements":[],"updates":[]}`,
 		"bad prop":       `{"requirements":[],"updates":[{"action":"set-properties","updates":{"write.data.path":"x"}}]}`,
+		"schema default": `{"requirements":[],"updates":[{"action":"add-schema","schema":{"type":"struct","fields":[{"id":1,"name":"a","type":"int","required":false,"write-default":1}]}}]}`,
 	} {
 		if _, err := vCommitTable(p, []byte(body)); err == nil {
 			t.Errorf("%s: accepted", name)

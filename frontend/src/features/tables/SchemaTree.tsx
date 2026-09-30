@@ -55,6 +55,12 @@ function describe(c: FieldChange): string {
 export function SchemaTree({ schemas, currentId, markers }: { schemas: Schema[]; currentId: number; markers?: FieldMarkers }) {
   const ordered = useMemo(() => [...schemas].sort((a, b) => a['schema-id'] - b['schema-id']), [schemas])
   const [selectedId, setSelectedId] = useState(currentId)
+  // Follow the table when a new schema becomes current (e.g. after evolving it).
+  const [seenCurrent, setSeenCurrent] = useState(currentId)
+  if (seenCurrent !== currentId) {
+    setSeenCurrent(currentId)
+    setSelectedId(currentId)
+  }
   const schema = ordered.find((s) => s['schema-id'] === selectedId) ?? ordered[ordered.length - 1]
   const idx = ordered.indexOf(schema)
   const prev = idx > 0 ? ordered[idx - 1] : undefined

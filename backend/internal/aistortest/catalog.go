@@ -27,6 +27,24 @@ type whState struct {
 	created    time.Time
 	properties map[string]string
 	namespaces map[string]*nsState // key: levels joined by 0x1F
+	tags       map[string]string
+	sse        string
+	kmsKey     string
+	maintCfg   map[string]any
+}
+
+func newWarehouse(name string, created time.Time, props map[string]string) *whState {
+	if props == nil {
+		props = map[string]string{}
+	}
+	tags := map[string]string{}
+	for k, v := range props {
+		tags[k] = v
+	}
+	return &whState{name: name, uuid: fakeUUID(name), created: created, properties: props, namespaces: map[string]*nsState{},
+		tags: tags, sse: "AES256", maintCfg: map[string]any{
+			"icebergUnreferencedFileRemoval": map[string]any{"status": "enabled", "settings": map[string]any{"icebergUnreferencedFileRemoval": map[string]any{"unreferencedDays": 3, "nonCurrentDays": 10}}},
+		}}
 }
 
 type nsState struct {
@@ -45,10 +63,7 @@ func NewCatalog() *Catalog { return &Catalog{warehouses: map[string]*whState{}} 
 func (c *Catalog) Seed(wh string, props map[string]string, namespaces map[string][3]int64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	w := &whState{name: wh, uuid: fakeUUID(wh), created: time.Now().Add(-time.Duration(len(wh)*37) * time.Hour), properties: props, namespaces: map[string]*nsState{}}
-	if w.properties == nil {
-		w.properties = map[string]string{}
-	}
+	w := newWarehouse(wh, time.Now().Add(-time.Duration(len(wh)*37)*time.Hour), props)
 	for path, st := range namespaces {
 		levels := strings.Split(path, ".")
 		for i := 1; i <= len(levels); i++ {
@@ -245,7 +260,7 @@ func (c *Catalog) Handle(w http.ResponseWriter, r *http.Request) {
 			iceErr(w, 409, "AlreadyExistsException", "warehouse already exists: "+body.Name)
 			return
 		}
-		c.warehouses[body.Name] = &whState{name: body.Name, uuid: fakeUUID(body.Name), created: time.Now(), properties: map[string]string{}, namespaces: map[string]*nsState{}}
+		c.warehouses[body.Name] = newWarehouse(body.Name, time.Now(), nil)
 		writeJSON(w, 200, map[string]any{"name": body.Name})
 	case len(segs) == 2 && segs[0] == "warehouses":
 		wh, ok := c.warehouses[segs[1]]
@@ -263,20 +278,17 @@ func (c *Catalog) Handle(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, 200, map[string]any{"name": wh.name, "bucket": wh.name, "uuid": wh.uuid, "created-at": wh.created.UTC().Format(time.RFC3339), "properties": wh.properties})
-	case len(segs) == 3 && segs[0] == "warehouses" && (segs[2] == "encryption" || segs[2] == "tags") && r.Method == "GET":
-		if _, ok := c.warehouses[segs[1]]; !ok {
+	case len(segs) == 3 && (segs[0] == "warehouses" || segs[0] == "buckets") && (segs[2] == "encryption" || segs[2] == "tags"):
+		wh, ok := c.warehouses[segs[1]]
+		if !ok {
 			iceErr(w, 404, "NoSuchWarehouseException", "warehouse does not exist: "+segs[1])
 			return
 		}
-		if segs[2] == "encryption" {
-			writeJSON(w, 200, map[string]any{"encryptionConfiguration": map[string]any{"sseAlgorithm": "AES256"}})
-		} else {
-			writeJSON(w, 200, map[string]any{"tags": c.warehouses[segs[1]].properties})
-		}
-	case len(segs) == 2 && segs[1] == "maintenance" && r.Method == "GET":
-		writeJSON(w, 200, map[string]any{"configuration": map[string]any{
-			"icebergUnreferencedFileRemoval": map[string]any{"status": "enabled", "settings": map[string]any{"icebergUnreferencedFileRemoval": map[string]any{"unreferencedDays": 3, "nonCurrentDays": 10}}},
-		}})
+		c.warehouseSettings(w, r, wh, segs[2], q)
+	case len(segs) >= 2 && segs[1] == "maintenance" && c.warehouses[segs[0]] != nil:
+		c.warehouseSettings(w, r, c.warehouses[segs[0]], strings.Join(segs[1:], "/"), q)
+	case len(segs) == 3 && segs[1] == "transactions" && segs[2] == "commit" && r.Method == "POST" && c.warehouses[segs[0]] != nil:
+		c.transaction(w, r, c.warehouses[segs[0]])
 	case len(segs) == 3 && (segs[1] == "tables" || segs[1] == "views") && segs[2] == "rename" && r.Method == "POST":
 		wh, ok := c.warehouses[segs[0]]
 		if !ok {
@@ -399,7 +411,11 @@ func (c *Catalog) handleNamespaces(w http.ResponseWriter, r *http.Request, wh *w
 	case len(rest) >= 2 && rest[1] == "tables":
 		c.handleTables(w, r, wh, ns, rest[2:], q)
 	case len(rest) >= 2 && rest[1] == "views":
-		c.handleViews(w, r, ns, rest[2:])
+		c.handleViews(w, r, wh, ns, rest[2:])
+	case len(rest) == 2 && rest[1] == "register" && r.Method == "POST":
+		c.register(w, r, wh, ns, "table")
+	case len(rest) == 2 && rest[1] == "register-view" && r.Method == "POST":
+		c.register(w, r, wh, ns, "view")
 	default:
 		iceErr(w, 404, "NotFound", "no such route in test catalog")
 	}

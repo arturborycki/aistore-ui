@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { useNavigate } from 'react-router'
-import { Ellipsis, Eye, Pencil, Search, Table2, Trash2 } from 'lucide-react'
+import { Link, useNavigate } from 'react-router'
+import { CreateViewDialog, RegisterDialog } from '@/features/views/ViewEditors'
+import { Ellipsis, Eye, Pencil, Plus, Search, Table2, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DataTable, Pagination, type Column } from '@/components/ui/data-table'
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from '@/components/ui/dropdown'
@@ -65,9 +66,16 @@ export function TablesList({ cluster, wh, ns }: { cluster: string; wh: string; n
   ]
   return (
     <div className="flex flex-col gap-3">
-      <div className="relative w-72">
-        <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-subtle" />
-        <Input value={list.search} onChange={(e) => list.setSearch(e.target.value)} placeholder="Search tables" aria-label="Search tables" className="pl-8" />
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative w-72">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-subtle" />
+          <Input value={list.search} onChange={(e) => list.setSearch(e.target.value)} placeholder="Search tables" aria-label="Search tables" className="pl-8" />
+        </div>
+        <div className="flex-1" />
+        <RegisterDialog kind="table" cluster={cluster} wh={wh} ns={ns} />
+        <Link to={paths.createTable(cluster, wh, ns)} className="inline-flex h-7 items-center gap-1.5 rounded-[var(--radius-control)] bg-accent px-2.5 text-[12px] font-medium text-accent-fg hover:bg-accent-hover [&_svg]:size-4">
+          <Plus /> New table
+        </Link>
       </div>
       {list.query.isError ? (
         <ErrorState error={list.query.error} onRetry={() => list.query.refetch()} />
@@ -118,9 +126,14 @@ export function ViewsList({ cluster, wh, ns }: { cluster: string; wh: string; ns
   const rows = (q.data ?? []).filter((v) => !filter || v.name.toLowerCase().includes(filter.toLowerCase()))
   return (
     <div className="flex flex-col gap-3">
-      <div className="relative w-72">
-        <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-subtle" />
-        <Input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter views" aria-label="Filter views" className="pl-8" />
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative w-72">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-subtle" />
+          <Input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter views" aria-label="Filter views" className="pl-8" />
+        </div>
+        <div className="flex-1" />
+        <RegisterDialog kind="view" cluster={cluster} wh={wh} ns={ns} />
+        <CreateViewDialog cluster={cluster} wh={wh} ns={ns} />
       </div>
       {q.isError ? (
         <ErrorState error={q.error} onRetry={() => q.refetch()} />

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams, useSearchParams } from 'react-router'
-import { Code, Ellipsis, FileJson, History, Info, KeyRound, ListTree, Pencil, SlidersHorizontal, Trash2 } from 'lucide-react'
+import { Code, Ellipsis, FileJson, FilePen, History, Info, KeyRound, ListTree, Pencil, SlidersHorizontal, Trash2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { CopyButton, CopyText } from '@/components/ui/copy-button'
@@ -12,7 +12,11 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { SqlView } from '@/components/ui/sql-view'
 import { ErrorState } from '@/components/ui/states'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { loadView, resourceArn } from '@/lib/catalog'
+import { commitView, loadView, resourceArn } from '@/lib/catalog'
+import { useToast } from '@/components/ui/toast'
+import { PropertiesEditor } from '@/features/namespaces/PropertiesEditor'
+import { EditViewDialog } from './ViewEditors'
+import type { LoadViewResult } from '@/lib/iceberg'
 import { cn } from '@/lib/cn'
 import { diffLines } from '@/lib/diff'
 import { formatDateTime, formatRelative } from '@/lib/format'
@@ -115,7 +119,23 @@ export function ViewPage() {
   const navigate = useNavigate()
   const [renaming, setRenaming] = useState(false)
   const [dropping, setDropping] = useState(false)
-  const q = useQuery({ queryKey: qk.view(cluster, wh, ns, view), queryFn: () => loadView(cluster, wh, ns, view) })
+  const [editing, setEditing] = useState(false)
+  const qc = useQueryClient()
+  const toast = useToast()
+  const key = qk.view(cluster, wh, ns, view)
+  const q = useQuery({ queryKey: key, queryFn: () => loadView(cluster, wh, ns, view) })
+  const saveProps = useMutation({
+    mutationFn: (c: { updates: Record<string, string>; removals: string[] }) => {
+      const updates: Record<string, unknown>[] = []
+      if (Object.keys(c.updates).length) updates.push({ action: 'set-properties', updates: c.updates })
+      if (c.removals.length) updates.push({ action: 'remove-properties', removals: c.removals })
+      return commitView(cluster, wh, ns, view, [{ type: 'assert-view-uuid', uuid: q.data!.metadata['view-uuid'] }], updates)
+    },
+    onSuccess: (r) => {
+      qc.setQueryData(key, (old: LoadViewResult | undefined) => (old ? { ...old, ...r } : r))
+      toast.success('View properties saved')
+    },
+  })
 
   const header = (
     <PageHeader
@@ -131,6 +151,7 @@ export function ViewPage() {
             </Button>
           </MenuTrigger>
           <MenuContent>
+            <MenuItem icon={<FilePen />} onSelect={() => setEditing(true)} disabled={!q.data}>Edit definition…</MenuItem>
             <MenuItem icon={<Pencil />} onSelect={() => setRenaming(true)}>Rename or move…</MenuItem>
             <MenuSeparator />
             <MenuItem icon={<Trash2 />} danger onSelect={() => setDropping(true)}>Drop view…</MenuItem>
@@ -160,7 +181,14 @@ export function ViewPage() {
         </TabsList>
         <TabsContent value="definition">
           <Card>
-            <CardHeader title="SQL definition" description={cur ? `Version ${cur['version-id']} · ${formatDateTime(cur['timestamp-ms'])}` : undefined} />
+            <CardHeader
+              title="SQL definition"
+              actions={
+                <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
+                  <FilePen /> Edit
+                </Button>
+              }
+              description={cur ? `Version ${cur['version-id']} · ${formatDateTime(cur['timestamp-ms'])}` : undefined} />
             {cur ? <DialectSql version={cur} /> : <p className="p-4 text-subtle">No current version.</p>}
           </Card>
         </TabsContent>
@@ -188,13 +216,9 @@ export function ViewPage() {
               </div>
             </Card>
             <Card>
-              <CardHeader title={<span className="flex items-center gap-2"><SlidersHorizontal className="size-4 text-muted" />Properties</span>} />
+              <CardHeader title={<span className="flex items-center gap-2"><SlidersHorizontal className="size-4 text-muted" />Properties</span>} description="Saved atomically, guarded by the view UUID." />
               <div className="p-4">
-                {Object.keys(md.properties ?? {}).length === 0 ? (
-                  <p className="text-[12.5px] text-subtle">No properties</p>
-                ) : (
-                  <KeyValue items={Object.entries(md.properties ?? {}).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => ({ label: k, value: <CopyText value={v} /> }))} />
-                )}
+                <PropertiesEditor properties={md.properties ?? {}} onSave={(c) => saveProps.mutate(c)} saving={saveProps.isPending} error={saveProps.error} />
               </div>
             </Card>
           </div>
@@ -206,6 +230,7 @@ export function ViewPage() {
           <AccessPanel warehouse={wh} resource={{ kind: 'view', uuid: md['view-uuid'] }} />
         </TabsContent>
       </Tabs>
+      <EditViewDialog cluster={cluster} wh={wh} ns={ns} view={view} md={md} open={editing} onOpenChange={setEditing} />
       <RenameDialog kind="view" cluster={cluster} wh={wh} ns={ns} name={view} open={renaming} onOpenChange={setRenaming} onRenamed={(nns, n) => navigate(paths.view(cluster, wh, nns, n), { replace: true })} />
       <DropViewDialog cluster={cluster} wh={wh} ns={ns} name={view} open={dropping} onOpenChange={setDropping} onDropped={() => navigate(`${paths.namespace(cluster, wh, ns)}?tab=views`, { replace: true })} />
     </div>

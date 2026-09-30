@@ -12,28 +12,25 @@ See [`docs/DESIGN.md`](docs/DESIGN.md) for the architecture and threat model, an
 
 ## Status
 
-**Phases 0 and 1 are complete.**
+**Phases 0–3 are complete.**
 
-- **Sign-in and security:** SSO (OIDC), LDAP and access-key sign-in, encrypted sessions, and step-up re-authentication for destructive actions. The backend forwards a fixed list covering every AIStor Tables endpoint.
-- **Overview and warehouses:** an overview dashboard, and warehouse create/delete.
-- **Namespaces:** nested namespaces with create/delete and a properties editor. Each namespace page has Tables, Views and Child-namespaces tabs.
-- **Table pages:**
-  - overview and stats;
-  - data **preview** with CSV export;
-  - **schema** tree with version history and diff;
-  - partitioning and sort orders;
-  - a **snapshot** timeline with a records chart, branches and tags;
-  - **maintenance** status and settings;
-  - a **properties** editor (committed atomically, guarded by the table UUID);
-  - encryption and tags;
-  - raw metadata (with storage credentials removed);
-  - an access/ARN helper.
-  - Actions: rename/move, and drop (keeps data files by default; purging requires step-up).
-- **View pages:** SQL definition for each dialect, version history with an SQL diff, schema, details, and rename/drop.
-- **Everywhere:** an explorer tree covering tables and views, a command palette, the activity log, and light/dark themes.
-- **64-bit safety:** Iceberg snapshot IDs and int64 preview values are parsed and sent without precision loss.
-
-**Next is phases 2 and 3:** create table (schema builder), register table and view, schema/partition evolution wizards, snapshot rollback, branch/tag management, editing maintenance, encryption and tags, and multi-table change sets.
+- **Sign-in and security:** SSO (OIDC), LDAP and access-key sign-in; encrypted sessions; step-up re-authentication for destructive actions; a typed allow-list covering every AIStor Tables endpoint.
+- **Browse:** overview, warehouses, nested namespaces, table and view pages (preview, schema history, partitioning, snapshots, maintenance, metadata, access helper), explorer tree, command palette, activity log.
+- **Manage:**
+  - create tables with a schema builder (nested struct/list/map types, partition spec, sort order, format version, properties, request preview);
+  - register existing tables and views;
+  - create views (SQL per dialect, output schema) and publish new view versions;
+  - rename/move and drop (keeping data by default);
+  - properties editors for namespaces, tables and views;
+  - warehouse and table **encryption**, **tags** and **maintenance** settings (warehouse defaults with per-table overrides).
+- **Evolve and operate:**
+  - **Schema evolution:** add (including nested), rename, widen (only allowed promotions), make optional, document, reorder and drop columns. Dropping a column the partition spec, sort order or row key still uses is blocked. A diff preview is shown before committing.
+  - **Partition and sort-order evolution:** partition field IDs are reused as Iceberg requires, and v1 tables keep removed fields as `void`.
+  - **Snapshots:** roll back `main`, create tags and branches with retention settings, edit retention, remove references.
+  - **Format upgrade** (v2 → v3).
+- **Safe concurrent editing:** every commit carries Iceberg requirements built from the metadata you were looking at. If someone else changed the table meanwhile, AIStor rejects the commit (409); nothing is overwritten, and the UI offers a reload.
+- **Multi-table change sets:** stage edits across tables of one warehouse and apply them in **one atomic transaction** (`transactions/commit`). Staged changes survive a page reload and are dropped when you sign out.
+- **64-bit safety:** snapshot IDs are parsed and sent without precision loss.
 
 ## Quick start (no AIStor needed)
 

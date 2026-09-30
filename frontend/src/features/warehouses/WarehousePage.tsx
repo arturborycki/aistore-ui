@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useParams, useSearchParams } from 'react-router'
-import { Ellipsis, FolderTree, Info, KeyRound, Trash2 } from 'lucide-react'
+import { Ellipsis, FolderTree, Info, KeyRound, Settings2, Trash2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { CopyText } from '@/components/ui/copy-button'
@@ -11,7 +11,20 @@ import { Card, CardHeader, KeyValue, PageHeader, StatCard } from '@/components/u
 import { Skeleton } from '@/components/ui/skeleton'
 import { ErrorState } from '@/components/ui/states'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { arn, getWarehouse, listWarehouses } from '@/lib/catalog'
+import {
+  arn,
+  deleteWarehouseEncryption,
+  getWarehouse,
+  getWarehouseEncryption,
+  getWarehouseMaintenance,
+  getWarehouseTags,
+  listWarehouses,
+  putWarehouseEncryption,
+  putWarehouseMaintenance,
+  tagWarehouse,
+  untagWarehouse,
+} from '@/lib/catalog'
+import { EncryptionCard, MaintenanceSettings, TagsCard } from '@/features/settings/SettingsEditors'
 import { formatBytes, formatCompact, formatDateTime, formatNumber, formatRelative } from '@/lib/format'
 import { qk } from '@/lib/queryKeys'
 import { paths } from '@/layout/paths'
@@ -100,6 +113,9 @@ export function WarehousePage() {
           <TabsTrigger value="details" icon={<Info />}>
             Details
           </TabsTrigger>
+          <TabsTrigger value="settings" icon={<Settings2 />}>
+            Settings
+          </TabsTrigger>
           <TabsTrigger value="access" icon={<KeyRound />}>
             Access
           </TabsTrigger>
@@ -139,6 +155,35 @@ export function WarehousePage() {
                 )}
               </div>
             </Card>
+          </div>
+        </TabsContent>
+        <TabsContent value="settings">
+          <div className="flex flex-col gap-5">
+            <div className="grid gap-4 lg:grid-cols-2">
+              <EncryptionCard
+                scope="warehouse"
+                queryKey={[...qk.warehouse(cluster, wh), 'encryption']}
+                load={() => getWarehouseEncryption(cluster, wh)}
+                save={(c) => putWarehouseEncryption(cluster, wh, c)}
+                onRemove={() => deleteWarehouseEncryption(cluster, wh)}
+              />
+              <TagsCard
+                queryKey={[...qk.warehouse(cluster, wh), 'tags']}
+                description="Tags on the warehouse (table bucket)."
+                load={() => getWarehouseTags(cluster, wh)}
+                add={(t) => tagWarehouse(cluster, wh, t)}
+                remove={(k) => untagWarehouse(cluster, wh, k)}
+              />
+            </div>
+            <section className="flex flex-col gap-2">
+              <h3 className="text-[12px] font-medium uppercase tracking-wide text-subtle">Maintenance defaults for all tables</h3>
+              <MaintenanceSettings
+                queryKey={[...qk.warehouse(cluster, wh), 'maintenance']}
+                types={['icebergUnreferencedFileRemoval', 'icebergSnapshotManagement', 'icebergCompaction']}
+                load={() => getWarehouseMaintenance(cluster, wh)}
+                save={(t, v) => putWarehouseMaintenance(cluster, wh, t, v)}
+              />
+            </section>
           </div>
         </TabsContent>
         <TabsContent value="access">

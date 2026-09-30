@@ -1,5 +1,8 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ChevronRight, GitBranch, Tag } from 'lucide-react'
+import { ChevronRight, Ellipsis, GitBranch, History, Pencil, Plus, Tag, Trash2 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Menu, MenuContent, MenuItem, MenuTrigger } from '@/components/ui/dropdown'
+import type { Int64 } from '@/lib/json'
 import { Badge, type Tone } from '@/components/ui/badge'
 import { CopyButton } from '@/components/ui/copy-button'
 import { Card, CardHeader, KeyValue } from '@/components/ui/layout'
@@ -105,7 +108,14 @@ function RefBadge({ name, r }: { name: string; r: SnapshotRef }) {
   )
 }
 
-export function SnapshotsTab({ md }: { md: TableMetadata }) {
+export interface SnapshotActions {
+  onRollback: (id: Int64) => void
+  onCreateRef: (id: Int64) => void
+  onEditRef: (name: string) => void
+  onRemoveRef: (name: string) => void
+}
+
+export function SnapshotsTab({ md, actions }: { md: TableMetadata; actions?: SnapshotActions }) {
   const timeline = useMemo(() => snapshotTimeline(md), [md])
   const [open, setOpen] = useState<string | null>(null)
   const points = useMemo(
@@ -145,11 +155,30 @@ export function SnapshotsTab({ md }: { md: TableMetadata }) {
                   <td className="px-2 font-mono text-[12px] text-muted" title={String(r['snapshot-id'])}>
                     {shortId(r['snapshot-id'])}
                   </td>
-                  <td className="px-4 text-right text-[12px] text-subtle">
+                  <td className="px-2 text-right text-[12px] text-subtle">
                     {r['max-ref-age-ms'] != null && <span>expires after {duration(r['max-ref-age-ms'])}</span>}
                     {r['min-snapshots-to-keep'] != null && <span>keeps ≥ {r['min-snapshots-to-keep']} snapshots</span>}
                     {r['max-snapshot-age-ms'] != null && <span> · snapshots ≤ {duration(r['max-snapshot-age-ms'])}</span>}
                   </td>
+                  {actions && (
+                    <td className="w-10 pr-2 text-right">
+                      <Menu>
+                        <MenuTrigger asChild>
+                          <Button size="icon-sm" variant="ghost" aria-label={`Actions for ${name}`}>
+                            <Ellipsis />
+                          </Button>
+                        </MenuTrigger>
+                        <MenuContent>
+                          <MenuItem icon={<Pencil />} onSelect={() => actions.onEditRef(name)}>Edit retention…</MenuItem>
+                          {name !== 'main' && (
+                            <MenuItem icon={<Trash2 />} danger onSelect={() => actions.onRemoveRef(name)}>
+                              Remove {r.type}…
+                            </MenuItem>
+                          )}
+                        </MenuContent>
+                      </Menu>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -159,7 +188,7 @@ export function SnapshotsTab({ md }: { md: TableMetadata }) {
 
       <Card>
         <CardHeader title="History" description="Newest first. Each snapshot is an atomic commit." />
-        <ol className="relative py-2">
+        <ol className="relative py-2" aria-label="Snapshot history">
           {timeline.map(({ snapshot: s, refs: rs }, i) => {
             const id = String(s['snapshot-id'])
             const isOpen = open === id
@@ -206,6 +235,18 @@ export function SnapshotsTab({ md }: { md: TableMetadata }) {
                 </button>
                 {isOpen && (
                   <div className="mb-2 ml-12 mr-4 rounded-[var(--radius-control)] border border-border bg-bg-subtle p-3 animate-slide-in">
+                    {actions && (
+                      <div className="mb-3 flex flex-wrap gap-2">
+                        {String(md['current-snapshot-id']) !== id && (
+                          <Button size="sm" variant="outline" onClick={() => actions.onRollback(s['snapshot-id'])}>
+                            <History /> Roll back main to here
+                          </Button>
+                        )}
+                        <Button size="sm" variant="outline" onClick={() => actions.onCreateRef(s['snapshot-id'])}>
+                          <Plus /> Branch or tag here
+                        </Button>
+                      </div>
+                    )}
                     <KeyValue
                       items={[
                         { label: 'Snapshot ID', value: <span className="flex items-center gap-1 font-mono text-[12px]">{id}<CopyButton value={id} /></span> },

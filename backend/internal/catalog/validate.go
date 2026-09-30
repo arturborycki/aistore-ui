@@ -513,6 +513,7 @@ func validateCommit(c *commitBody, reqTypes, actions map[string]bool, table bool
 			Action   string            `json:"action"`
 			Updates  map[string]string `json:"updates"`
 			Location string            `json:"location"`
+			Schema   *schema           `json:"schema"`
 		}
 		if json.Unmarshal(u, &a) != nil {
 			return invalid("malformed update")
@@ -522,6 +523,14 @@ func validateCommit(c *commitBody, reqTypes, actions map[string]bool, table bool
 		}
 		if !actions[a.Action] {
 			return invalid("unsupported update action %q", a.Action)
+		}
+		if a.Action == "add-schema" {
+			if a.Schema == nil {
+				return invalid("add-schema requires a schema")
+			}
+			if err := a.Schema.validate(); err != nil {
+				return err
+			}
 		}
 		if a.Action == "set-properties" {
 			if err := checkProperties(a.Updates, table); err != nil {

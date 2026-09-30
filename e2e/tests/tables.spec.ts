@@ -27,7 +27,7 @@ test('table page: every tab renders and no credentials reach the browser', async
   await expect(page.getByText('9007199254740993').first()).toBeVisible()
 
   await page.getByRole('tab', { name: /^Maintenance/ }).click()
-  await expect(page.getByText('Compaction', { exact: true })).toBeVisible()
+  await expect(page.getByText('Compaction', { exact: true }).first()).toBeVisible()
 
   await page.getByRole('tab', { name: /^Metadata/ }).click()
   await expect(page.getByText('Current metadata file')).toBeVisible()
@@ -49,7 +49,7 @@ test('edit table properties with an atomic commit', async ({ page }) => {
   await page.getByLabel('Property key').last().fill('e2e.reviewed-by')
   await page.getByLabel(/Value for e2e.reviewed-by/).fill('alice')
   await page.getByRole('button', { name: 'Save changes' }).click()
-  await expect(page.getByText('Table properties saved')).toBeVisible()
+  await expect(page.getByText('Committed').first()).toBeVisible()
   await page.reload()
   await expect(page.getByLabel(/Value for e2e.reviewed-by/)).toHaveValue('alice')
   await shot(page, '10-table-properties')

@@ -356,8 +356,8 @@ audit: { sink: stdout, webhookUrl: null }
 |---|---|
 | **0 – Foundations** ✅ | Go backend with the SigV4 signer. OIDC, LDAP and access-key sign-in through STS; encrypted sessions; CSRF and CSP (with a nonce for runtime styles); step-up. The **complete** route allow-list with validation and redaction; audit; metrics. The UI shell, overview, warehouses and namespaces. Container, Compose, Kubernetes, CI |
 | **1 – Browse** ✅ | Overview stats, warehouses/namespaces/tables grids (stats mode, search, sort), namespace tree, table and view detail (all read tabs), **data preview**, maintenance status, Access/ARN helper, 403-aware UX |
-| **2 – Manage** | Create/drop warehouse, namespace, table and view (explicit-purge safeguards); properties and tags editing; rename; register table/view; step-up re-auth; audit trail |
-| **3 – Evolve and operate** | Schema, partition and sort evolution wizards, snapshot rollback, branch/tag management, conflict handling, multi-table change sets, **maintenance configuration** (warehouse and table), **encryption settings** |
+| **2 – Manage** ✅ | Create/drop warehouse, namespace, table and view (explicit-purge safeguards); properties and tags editing; rename; register table/view; step-up re-auth; audit trail |
+| **3 – Evolve and operate** ✅ | Schema, partition and sort evolution wizards, snapshot rollback, branch/tag management, conflict handling, multi-table change sets, **maintenance configuration** (warehouse and table), **encryption settings** |
 | **4 – Beyond** | Optional admin policy viewer or generator, Delta Sharing management, staged-create workflows |
 
 ---
@@ -388,6 +388,12 @@ The API reference answered most earlier questions. What's left:
 3. Whether `GET /stats` only counts what the caller is allowed to see, or reports cluster-wide totals. If it's cluster-wide, it could leak information across tenants, so it may need an admin-only setting.
 4. The `namespace-separator` value from `/config`. We'll test against a live server.
 5. Whether a stats-mode `ui_token` is tied to the caller. The BFF keeps it per session regardless.
+
+### Request formats assumed for the AIStor extension endpoints
+The AIStor reference names these operations but does not document their bodies. The UI sends the AWS S3 Tables shapes; the backend forwards any JSON object unchanged, so aligning them with AIStor only needs a frontend change:
+- `PUT …/maintenance/{type}`: `{"value": {"status": "enabled"|"disabled", "settings": {"<type>": {…}}}}`. Settings used: `targetFileSizeMB`, `minSnapshotsToKeep`, `maxSnapshotAgeHours`, `unreferencedDays`, `nonCurrentDays`.
+- `PUT …/encryption`: `{"encryptionConfiguration": {"sseAlgorithm": "AES256"|"aws:kms", "kmsKeyArn": "…"}}`.
+- `POST …/tags`: `{"tags": {"k": "v"}}`; `DELETE …/tags?tagKeys=k`.
 
 ## References
 - AIStor Tables API reference: https://docs.min.io/aistor/developers/aistor-tables/aistor-tables-api/ (PDF snapshot 2026-09-28)

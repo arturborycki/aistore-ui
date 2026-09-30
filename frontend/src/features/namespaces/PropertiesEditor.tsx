@@ -67,9 +67,12 @@ export function PropertiesEditor({
   saving,
   error,
   readOnlyKeys = [],
+  onStage,
 }: {
   properties: Record<string, string>
   onSave: (changes: PropertyChanges) => void
+  /** optional: stage the changes into a multi-table change set instead of saving */
+  onStage?: (changes: PropertyChanges) => void
   saving?: boolean
   error?: unknown
   readOnlyKeys?: string[]
@@ -167,6 +170,19 @@ export function PropertiesEditor({
               Discard
             </Button>
           </>
+        )}
+        {onStage && (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!dirty || !!invalid || saving}
+            onClick={() => {
+              onStage(changes)
+              setDrafts(toDrafts(properties))
+            }}
+          >
+            Add to change set
+          </Button>
         )}
         <Button size="sm" variant="primary" disabled={!dirty || !!invalid} loading={saving} onClick={() => onSave(changes)}>
           Save changes
