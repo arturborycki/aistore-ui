@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -147,5 +148,54 @@ func TestViewsAndSettings(t *testing.T) {
 	c.Handle(rec, req)
 	if rec.Code != http.StatusNoContent || c.warehouses["wh1"].tags["team"] != "" {
 		t.Fatalf("untag failed")
+	}
+}
+
+func TestRemoveSnapshotsAndIdentifierFields(t *testing.T) {
+	c := newTestCatalog(t)
+	var name string
+	for n := range c.warehouses["wh1"].namespaces["ns"].tbl {
+		name = n
+		break
+	}
+	md := mdOf(t, c, name)
+	snaps := arr(md["snapshots"])
+	if len(snaps) < 2 {
+		t.Fatalf("seed has %d snapshots", len(snaps))
+	}
+	cur := md["current-snapshot-id"].(json.Number).String()
+	old := obj(snaps[0])["snapshot-id"].(json.Number).String()
+	path := "/wh1/namespaces/ns/tables/" + name
+	// A snapshot referenced by main cannot be removed.
+	if code, _ := call(t, c, "POST", path, `{"updates":[{"action":"remove-snapshots","snapshot-ids":[`+cur+`]}]}`); code != 400 {
+		t.Fatalf("removed the current snapshot: %d", code)
+	}
+	if code, out := call(t, c, "POST", path, `{"updates":[{"action":"remove-snapshots","snapshot-ids":[`+old+`]}]}`); code != 200 {
+		t.Fatalf("remove: %d %v", code, out)
+	}
+	md = mdOf(t, c, name)
+	if len(arr(md["snapshots"])) != len(snaps)-1 {
+		t.Fatalf("snapshot not removed")
+	}
+	for _, e := range arr(md["snapshot-log"]) {
+		if obj(e)["snapshot-id"].(json.Number).String() == old {
+			t.Fatalf("snapshot log still lists the removed snapshot")
+		}
+	}
+
+	schema := func(idents string, required bool) string {
+		return `{"updates":[{"action":"add-schema","schema":{"type":"struct","identifier-field-ids":` + idents + `,"fields":[{"id":1,"name":"id","type":"long","required":` + strings.ToLower(strconv.FormatBool(required)) + `},{"id":2,"name":"score","type":"double","required":true}]}}]}`
+	}
+	c2 := newTestCatalog(t)
+	call(t, c2, "POST", "/wh1/namespaces/ns/tables", `{"name":"k","schema":{"type":"struct","fields":[{"id":1,"name":"id","type":"long","required":true},{"id":2,"name":"score","type":"double","required":true}]}}`)
+	kp := "/wh1/namespaces/ns/tables/k"
+	if code, out := call(t, c2, "POST", kp, schema("[1]", true)); code != 200 {
+		t.Fatalf("identifier on required long rejected: %d %v", code, out)
+	}
+	if code, _ := call(t, c2, "POST", kp, schema("[2]", true)); code != 400 {
+		t.Fatalf("double identifier accepted")
+	}
+	if code, _ := call(t, c2, "POST", kp, schema("[1]", false)); code != 400 {
+		t.Fatalf("optional identifier accepted")
 	}
 }

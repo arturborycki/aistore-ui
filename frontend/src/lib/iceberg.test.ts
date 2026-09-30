@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { parseJSON, stringifyJSON } from './json'
-import { diffSchemas, flattenSchema, snapshotTimeline, transformLabel, typeLabel, type Schema, type TableMetadata } from './iceberg'
+import { diffSchemas, flattenSchema, resolveView, snapshotTimeline, transformLabel, typeLabel, type Schema, type TableMetadata } from './iceberg'
 import { diffLines } from './diff'
 import { tokenizeSql } from '@/components/ui/sql-view'
 
@@ -74,5 +74,32 @@ describe('text utilities', () => {
     expect(toks.find((t) => t.v === 'SELECT')?.t).toBe('kw')
     expect(toks.find((t) => t.v === 'count')?.t).toBe('fn')
     expect(toks.find((t) => t.v === "'x'")?.t).toBe('str')
+  })
+})
+
+describe('time travel', () => {
+  const md = {
+    'current-schema-id': 1,
+    schemas: [
+      { type: 'struct', 'schema-id': 0, fields: [{ id: 1, name: 'id', type: 'long', required: true }] },
+      { type: 'struct', 'schema-id': 1, fields: [{ id: 1, name: 'id', type: 'long', required: true }, { id: 2, name: 'x', type: 'int', required: false }] },
+    ],
+    'current-snapshot-id': '20',
+    snapshots: [
+      { 'snapshot-id': '10', 'schema-id': 0, 'timestamp-ms': 1, summary: { operation: 'append' } },
+      { 'snapshot-id': '20', 'schema-id': 1, 'timestamp-ms': 2, summary: { operation: 'append' } },
+    ],
+    refs: { main: { 'snapshot-id': '20', type: 'branch' }, old: { 'snapshot-id': '10', type: 'tag' }, dev: { 'snapshot-id': '10', type: 'branch' } },
+  } as unknown as TableMetadata
+
+  it('reads tags and snapshots with their own schema, branches with the current one', () => {
+    expect(resolveView(md, 'ref:old').schema?.['schema-id']).toBe(0)
+    expect(resolveView(md, 'snap:10').schema?.['schema-id']).toBe(0)
+    expect(resolveView(md, 'ref:dev').schema?.['schema-id']).toBe(1)
+    expect(resolveView(md, 'ref:dev').snapshot?.['snapshot-id']).toBe('10')
+  })
+
+  it('falls back to current for main, the current snapshot and unknown selectors', () => {
+    for (const at of ['', 'ref:main', 'snap:20', 'snap:99', 'ref:nope', 'garbage']) expect(resolveView(md, at).kind).toBe('current')
   })
 })

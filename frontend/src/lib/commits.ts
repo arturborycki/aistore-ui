@@ -12,7 +12,7 @@ export type Requirement = { type: string; [k: string]: unknown }
 export type Update = { action: string; [k: string]: unknown }
 
 /** What a change touches; at most one staged change per table and kind (properties merge). */
-export type ChangeKind = 'properties' | 'schema' | 'spec' | 'sort' | 'format' | `ref:${string}`
+export type ChangeKind = 'properties' | 'schema' | 'spec' | 'sort' | 'format' | 'snapshots' | `ref:${string}`
 
 export interface TableChange {
   identifier: TableIdentifier
@@ -38,11 +38,13 @@ export function propertiesChange(md: TableMetadata, id: TableIdentifier, updates
 
 // ---------------------------------------------------------------- schema
 
-export function schemaChange(md: TableMetadata, id: TableIdentifier, fields: NestedField[], lastColumnId: number, summary: string): TableChange {
+/** `identifierIds` replaces the row-key fields; omitted, the current ones are kept. */
+export function schemaChange(md: TableMetadata, id: TableIdentifier, fields: NestedField[], lastColumnId: number, summary: string, identifierIds?: number[]): TableChange {
   const cur = currentSchema(md)
   const nextId = maxOf(md.schemas.map((s) => s['schema-id'])) + 1
   const schema: Record<string, unknown> = { type: 'struct', 'schema-id': nextId, fields }
-  if (cur?.['identifier-field-ids']?.length) schema['identifier-field-ids'] = cur['identifier-field-ids']
+  const idents = identifierIds ?? cur?.['identifier-field-ids'] ?? []
+  if (idents.length) schema['identifier-field-ids'] = idents
   return {
     identifier: id,
     kind: 'schema',
@@ -151,6 +153,26 @@ export function rollbackChange(md: TableMetadata, id: TableIdentifier, snapshotI
     summary: `Roll back main to snapshot ${snapshotId}`,
     requirements: [uuidReq(md), { type: 'assert-ref-snapshot-id', ref: 'main', 'snapshot-id': main?.['snapshot-id'] ?? md['current-snapshot-id'] ?? null }],
     updates: [{ action: 'set-snapshot-ref', 'ref-name': 'main', type: 'branch', 'snapshot-id': snapshotId, ...retention(main) }],
+  }
+}
+
+/**
+ * Removes snapshots from the table's history. Every reference is asserted so a
+ * concurrent commit that points a branch or tag at one of them conflicts.
+ */
+export function removeSnapshotsChange(md: TableMetadata, id: TableIdentifier, snapshotIds: Int64[]): TableChange {
+  if (snapshotIds.length === 0) throw new Error('Select at least one snapshot')
+  const refs = Object.entries(md.refs ?? {})
+  const pinned = new Set(refs.map(([, r]) => String(r['snapshot-id'])))
+  if (md['current-snapshot-id'] != null) pinned.add(String(md['current-snapshot-id']))
+  const blocked = snapshotIds.filter((s) => pinned.has(String(s)))
+  if (blocked.length) throw new Error(`Snapshot ${blocked.join(', ')} is referenced by a branch or tag`)
+  return {
+    identifier: id,
+    kind: 'snapshots',
+    summary: `Expire ${snapshotIds.length} snapshot${snapshotIds.length === 1 ? '' : 's'}`,
+    requirements: [uuidReq(md), ...refs.map(([name, r]) => ({ type: 'assert-ref-snapshot-id', ref: name, 'snapshot-id': r['snapshot-id'] }))],
+    updates: [{ action: 'remove-snapshots', 'snapshot-ids': snapshotIds }],
   }
 }
 

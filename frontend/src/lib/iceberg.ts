@@ -288,6 +288,43 @@ export function currentSchema(md: TableMetadata): Schema | undefined {
   return md.schemas.find((s) => s['schema-id'] === md['current-schema-id']) ?? md.schemas[md.schemas.length - 1]
 }
 
+/** A point in table history the UI can show: a branch, a tag or a single snapshot. */
+export interface TableView {
+  /** `ref:<name>` or `snap:<id>`; empty for the current state of main */
+  at: string
+  label: string
+  kind: 'current' | 'branch' | 'tag' | 'snapshot'
+  snapshot?: Snapshot
+  schema?: Schema
+}
+
+/**
+ * Resolves a time-travel selector. As in Iceberg readers, a branch is read with
+ * the table's current schema, while a tag or snapshot uses the schema that was
+ * current when the snapshot was written. Unknown selectors fall back to current.
+ */
+export function resolveView(md: TableMetadata, at: string | null | undefined): TableView {
+  const current: TableView = { at: '', label: 'main', kind: 'current', snapshot: currentSnapshot(md), schema: currentSchema(md) }
+  if (!at) return current
+  const byId = (id: Int64) => md.snapshots?.find((s) => String(s['snapshot-id']) === String(id))
+  const schemaOf = (s?: Snapshot) => (s?.['schema-id'] != null ? md.schemas.find((x) => x['schema-id'] === s['schema-id']) : undefined) ?? currentSchema(md)
+  if (at.startsWith('ref:')) {
+    const name = at.slice(4)
+    const ref = md.refs?.[name]
+    if (!ref) return current
+    const snap = byId(ref['snapshot-id'])
+    if (name === 'main' && String(ref['snapshot-id']) === String(md['current-snapshot-id'])) return current
+    return { at, label: name, kind: ref.type, snapshot: snap, schema: ref.type === 'branch' ? currentSchema(md) : schemaOf(snap) }
+  }
+  if (at.startsWith('snap:')) {
+    const snap = byId(at.slice(5))
+    if (!snap) return current
+    if (String(snap['snapshot-id']) === String(md['current-snapshot-id'])) return current
+    return { at, label: `snapshot ${shortId(snap['snapshot-id'])}`, kind: 'snapshot', snapshot: snap, schema: schemaOf(snap) }
+  }
+  return current
+}
+
 /** Snapshots newest first, each annotated with the refs pointing at it. */
 export function snapshotTimeline(md: TableMetadata) {
   const refsBySnap = new Map<string, { name: string; ref: SnapshotRef }[]>()

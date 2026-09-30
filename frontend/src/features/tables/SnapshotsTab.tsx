@@ -1,5 +1,5 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ChevronRight, Ellipsis, GitBranch, History, Pencil, Plus, Tag, Trash2 } from 'lucide-react'
+import { Eye, ChevronRight, Ellipsis, GitBranch, History, Pencil, Plus, Tag, Trash2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Menu, MenuContent, MenuItem, MenuTrigger } from '@/components/ui/dropdown'
 import type { Int64 } from '@/lib/json'
@@ -7,6 +7,7 @@ import { Badge, type Tone } from '@/components/ui/badge'
 import { CopyButton } from '@/components/ui/copy-button'
 import { Card, CardHeader, KeyValue } from '@/components/ui/layout'
 import { EmptyState } from '@/components/ui/states'
+import { Checkbox } from '@/components/ui/switch'
 import { Tooltip } from '@/components/ui/tooltip'
 import { cn } from '@/lib/cn'
 import { formatBytes, formatCompact, formatDateTime, formatNumber, formatRelative } from '@/lib/format'
@@ -113,11 +114,22 @@ export interface SnapshotActions {
   onCreateRef: (id: Int64) => void
   onEditRef: (name: string) => void
   onRemoveRef: (name: string) => void
+  onExpire: (ids: Int64[]) => void
+  onViewAt: (id: Int64) => void
 }
 
 export function SnapshotsTab({ md, actions }: { md: TableMetadata; actions?: SnapshotActions }) {
   const timeline = useMemo(() => snapshotTimeline(md), [md])
   const [open, setOpen] = useState<string | null>(null)
+  const [selecting, setSelecting] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  // Snapshots a branch or tag points at (including main's current one) cannot be expired.
+  const pinned = useMemo(() => new Set([...Object.values(md.refs ?? {}).map((r) => String(r['snapshot-id'])), String(md['current-snapshot-id'])]), [md])
+  const expirable = timeline.filter(({ snapshot: s }) => !pinned.has(String(s['snapshot-id'])))
+  const stopSelecting = () => {
+    setSelecting(false)
+    setSelected(new Set())
+  }
   const points = useMemo(
     () =>
       [...timeline]
@@ -187,7 +199,39 @@ export function SnapshotsTab({ md, actions }: { md: TableMetadata; actions?: Sna
       </div>
 
       <Card>
-        <CardHeader title="History" description="Newest first. Each snapshot is an atomic commit." />
+        <CardHeader
+          title="History"
+          description="Newest first. Each snapshot is an atomic commit."
+          actions={
+            actions &&
+            (selecting ? (
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="ghost" onClick={() => setSelected(selected.size === expirable.length ? new Set() : new Set(expirable.map(({ snapshot: s }) => String(s['snapshot-id']))))}>
+                  {selected.size === expirable.length ? 'Clear' : `Select all ${expirable.length}`}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="danger"
+                  disabled={selected.size === 0}
+                  onClick={() => actions.onExpire(timeline.map(({ snapshot: s }) => s['snapshot-id']).filter((id) => selected.has(String(id))))}
+                >
+                  <Trash2 /> Expire {selected.size || ''}
+                </Button>
+                <Button size="icon-sm" variant="ghost" aria-label="Cancel selection" onClick={stopSelecting}>
+                  <X />
+                </Button>
+              </div>
+            ) : (
+              <Tooltip content={expirable.length ? 'Select snapshots to remove from history' : 'Every snapshot is referenced by a branch or tag'}>
+                <span>
+                  <Button size="sm" variant="outline" disabled={expirable.length === 0} onClick={() => setSelecting(true)}>
+                    <Trash2 /> Expire snapshots…
+                  </Button>
+                </span>
+              </Tooltip>
+            ))
+          }
+        />
         <ol className="relative py-2" aria-label="Snapshot history">
           {timeline.map(({ snapshot: s, refs: rs }, i) => {
             const id = String(s['snapshot-id'])
@@ -197,7 +241,23 @@ export function SnapshotsTab({ md, actions }: { md: TableMetadata; actions?: Sna
             const deleted = summaryNumber(s, 'deleted-records')
             const files = summaryNumber(s, 'added-data-files')
             return (
-              <li key={id} className="relative">
+              <li key={id} className="relative flex items-start">
+                {selecting && (
+                  <span className="pl-3 pt-3">
+                    <Checkbox
+                      label={`Select snapshot ${id}`}
+                      disabled={pinned.has(id)}
+                      checked={selected.has(id)}
+                      onCheckedChange={(v) => {
+                        const next = new Set(selected)
+                        if (v) next.add(id)
+                        else next.delete(id)
+                        setSelected(next)
+                      }}
+                    />
+                  </span>
+                )}
+                <div className="relative min-w-0 flex-1">
                 <span className={cn('absolute left-[27px] w-px bg-border', i === 0 ? 'top-5' : 'top-0', i === timeline.length - 1 ? 'h-5' : 'h-full')} aria-hidden />
                 <button
                   type="button"
@@ -245,6 +305,9 @@ export function SnapshotsTab({ md, actions }: { md: TableMetadata; actions?: Sna
                         <Button size="sm" variant="outline" onClick={() => actions.onCreateRef(s['snapshot-id'])}>
                           <Plus /> Branch or tag here
                         </Button>
+                        <Button size="sm" variant="outline" onClick={() => actions.onViewAt(s['snapshot-id'])}>
+                          <Eye /> View table as of here
+                        </Button>
                       </div>
                     )}
                     <KeyValue
@@ -263,6 +326,7 @@ export function SnapshotsTab({ md, actions }: { md: TableMetadata; actions?: Sna
                     />
                   </div>
                 )}
+                </div>
               </li>
             )
           })}

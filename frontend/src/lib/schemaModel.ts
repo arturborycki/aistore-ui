@@ -222,3 +222,22 @@ export function droppedIds(before: StructType, after: EField[]): number[] {
   walk(before.fields)
   return out
 }
+
+/**
+ * Columns that may be part of the row key (Iceberg identifier fields):
+ * required primitives other than float/double, reachable only through
+ * required structs (never through lists or maps).
+ */
+export function identifierCandidates(fields: NestedField[], prefix: string[] = []): { id: number; path: string }[] {
+  const out: { id: number; path: string }[] = []
+  for (const f of fields) {
+    if (!f.required) continue
+    const path = [...prefix, f.name]
+    if (typeof f.type === 'string') {
+      if (f.type !== 'float' && f.type !== 'double') out.push({ id: f.id, path: path.join('.') })
+    } else if (f.type.type === 'struct') {
+      out.push(...identifierCandidates(f.type.fields, path))
+    }
+  }
+  return out
+}

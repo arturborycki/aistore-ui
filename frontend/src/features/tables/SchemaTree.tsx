@@ -52,14 +52,16 @@ function describe(c: FieldChange): string {
  * Tree-table of a (possibly nested) Iceberg schema with version history.
  * Fields are identified by id, so renames are tracked across versions.
  */
-export function SchemaTree({ schemas, currentId, markers }: { schemas: Schema[]; currentId: number; markers?: FieldMarkers }) {
+/** `initialId` selects a schema other than the current one (time travel). */
+export function SchemaTree({ schemas, currentId, initialId, markers }: { schemas: Schema[]; currentId: number; initialId?: number; markers?: FieldMarkers }) {
   const ordered = useMemo(() => [...schemas].sort((a, b) => a['schema-id'] - b['schema-id']), [schemas])
-  const [selectedId, setSelectedId] = useState(currentId)
+  const shown = initialId ?? currentId
+  const [selectedId, setSelectedId] = useState(shown)
   // Follow the table when a new schema becomes current (e.g. after evolving it).
-  const [seenCurrent, setSeenCurrent] = useState(currentId)
-  if (seenCurrent !== currentId) {
-    setSeenCurrent(currentId)
-    setSelectedId(currentId)
+  const [seenCurrent, setSeenCurrent] = useState(shown)
+  if (seenCurrent !== shown) {
+    setSeenCurrent(shown)
+    setSelectedId(shown)
   }
   const schema = ordered.find((s) => s['schema-id'] === selectedId) ?? ordered[ordered.length - 1]
   const idx = ordered.indexOf(schema)

@@ -3,6 +3,11 @@ import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useParams, useSearchParams } from 'react-router'
 import {
   ArrowUpCircle,
+  Check,
+  ChevronDown,
+  Clock,
+  GitBranch,
+  Tag,
   Ellipsis,
   GitCompare,
   FileJson,
@@ -22,7 +27,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { CopyText } from '@/components/ui/copy-button'
-import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from '@/components/ui/dropdown'
+import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from '@/components/ui/dropdown'
 import { EntityBadgeIcon } from '@/components/ui/entity-icon'
 import { Card, CardHeader, KeyValue, PageHeader, StatCard } from '@/components/ui/layout'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -35,7 +40,7 @@ import { propertiesChange } from '@/lib/commits'
 import type { Int64 } from '@/lib/json'
 import { cn } from '@/lib/cn'
 import { formatBytes, formatCompact, formatDateTime, formatNumber, formatRelative } from '@/lib/format'
-import { currentSchema, currentSnapshot, fieldNames, summaryNumber, transformLabel, type LoadTableResult } from '@/lib/iceberg'
+import { currentSchema, fieldNames, resolveView, shortId, summaryNumber, transformLabel, type LoadTableResult, type TableMetadata, type TableView } from '@/lib/iceberg'
 import { decodeNamespaceParam, namespaceLabel } from '@/lib/namespace'
 import { qk } from '@/lib/queryKeys'
 import { paths } from '@/layout/paths'
@@ -44,7 +49,7 @@ import { AccessPanel } from '@/features/warehouses/AccessPanel'
 import { PropertiesEditor } from '@/features/namespaces/PropertiesEditor'
 import { CommitBar, useTableCommit } from './CommitBar'
 import { DropTableDialog, RenameDialog } from './EntityDialogs'
-import { EvolvePartitionDialog, EvolveSchemaDialog, EvolveSortDialog, RefDialog, RemoveRefDialog, RollbackDialog, UpgradeFormatDialog } from './EvolveDialogs'
+import { EvolvePartitionDialog, EvolveSchemaDialog, EvolveSortDialog, ExpireSnapshotsDialog, RefDialog, RemoveRefDialog, RollbackDialog, UpgradeFormatDialog } from './EvolveDialogs'
 import { MaintenanceHealthBadge, MaintenanceTab, useMaintenanceStatus } from './MaintenanceTab'
 import { MetadataTab } from './MetadataTab'
 import { PartitionsTab } from './PartitionsTab'
@@ -53,10 +58,10 @@ import { SchemaTree } from './SchemaTree'
 import { SettingsTab } from './SettingsTab'
 import { SnapshotsTab } from './SnapshotsTab'
 
-function OverviewTab({ data, wh }: { data: LoadTableResult; wh: string }) {
+function OverviewTab({ data, wh, view }: { data: LoadTableResult; wh: string; view: TableView }) {
   const md = data.metadata
-  const snap = currentSnapshot(md)
-  const schema = currentSchema(md)
+  const snap = view.snapshot
+  const schema = view.schema
   const names = schema ? fieldNames(schema) : new Map<number, string>()
   const spec = md['partition-specs'].find((s) => s['spec-id'] === md['default-spec-id'])
   const order = md['sort-orders']?.find((o) => o['order-id'] === md['default-sort-order-id'])
@@ -83,7 +88,7 @@ function OverviewTab({ data, wh }: { data: LoadTableResult; wh: string }) {
         </div>
       </Card>
       <Card>
-        <CardHeader title="Current snapshot" />
+        <CardHeader title={view.kind === 'current' ? 'Current snapshot' : `Snapshot of ${view.label}`} />
         <div className="p-4">
           {snap ? (
             <KeyValue
@@ -119,6 +124,45 @@ function OverviewTab({ data, wh }: { data: LoadTableResult; wh: string }) {
   )
 }
 
+/** Picks the branch, tag or snapshot the page shows ("time travel"). */
+function ViewPicker({ md, view, onChange }: { md: TableMetadata; view: TableView; onChange: (at: string) => void }) {
+  const refs = Object.entries(md.refs ?? {}).sort(([a], [b]) => (a === 'main' ? -1 : b === 'main' ? 1 : a.localeCompare(b)))
+  const icon = view.kind === 'tag' ? <Tag /> : view.kind === 'snapshot' ? <Clock /> : <GitBranch />
+  return (
+    <Menu>
+      <MenuTrigger asChild>
+        <Button variant="outline" aria-label={`Viewing ${view.label}`} className={cn(view.kind !== 'current' && 'border-warning/60 text-warning')}>
+          {icon}
+          <span className="max-w-40 truncate font-mono text-[12px]">{view.label}</span>
+          <ChevronDown className="text-subtle" />
+        </Button>
+      </MenuTrigger>
+      <MenuContent align="end">
+        <MenuLabel>View table as of</MenuLabel>
+        {refs.map(([name, r]) => {
+          const at = name === 'main' ? '' : `ref:${name}`
+          const active = view.at === at || (name === 'main' && view.kind === 'current')
+          return (
+            <MenuItem key={name} icon={r.type === 'tag' ? <Tag /> : <GitBranch />} onSelect={() => onChange(at)}>
+              <span className="font-mono text-[12px]">{name}</span>
+              <span className="ml-3 font-mono text-[11px] text-subtle">{shortId(r['snapshot-id'])}</span>
+              {active && <Check className="ml-auto size-3.5 text-accent" />}
+            </MenuItem>
+          )
+        })}
+        {view.kind === 'snapshot' && (
+          <MenuItem icon={<Clock />} onSelect={() => undefined}>
+            <span className="font-mono text-[12px]">{view.label}</span>
+            <Check className="ml-auto size-3.5 text-accent" />
+          </MenuItem>
+        )}
+        <MenuSeparator />
+        <MenuLabel>Any snapshot: Snapshots tab → “View table as of here”</MenuLabel>
+      </MenuContent>
+    </Menu>
+  )
+}
+
 export function TablePage() {
   const cluster = useCluster()
   const params = useParams()
@@ -127,6 +171,12 @@ export function TablePage() {
   const table = params.table!
   const [search, setSearch] = useSearchParams()
   const tab = search.get('tab') ?? 'overview'
+  const at = search.get('at') ?? ''
+  const setAt = (next: string, tabOverride?: string) => {
+    const p: Record<string, string> = { tab: tabOverride ?? tab }
+    if (next) p.at = next
+    setSearch(p, { replace: true })
+  }
   const navigate = useNavigate()
   const [renaming, setRenaming] = useState(false)
   const [dropping, setDropping] = useState(false)
@@ -135,6 +185,7 @@ export function TablePage() {
     | { kind: 'rollback'; snapshot: Int64 }
     | { kind: 'ref'; snapshot?: Int64; name?: string }
     | { kind: 'remove-ref'; name: string }
+    | { kind: 'expire'; snapshots: Int64[] }
     | null
   const [dialog, setDialog] = useState<DialogState>(null)
   const commit = useTableCommit(cluster, wh, ns, table)
@@ -169,6 +220,7 @@ export function TablePage() {
       }
       actions={
         <>
+          {q.data && <ViewPicker md={q.data.metadata} view={resolveView(q.data.metadata, at)} onChange={(v) => setAt(v)} />}
           <Tooltip content="Reload metadata">
             <Button size="icon" variant="outline" aria-label="Reload metadata" onClick={() => q.refetch()}>
               <RefreshCw className={cn(q.isFetching && 'animate-spin')} />
@@ -223,7 +275,8 @@ export function TablePage() {
   }
 
   const md = q.data.metadata
-  const snap = currentSnapshot(md)
+  const view = resolveView(md, at)
+  const snap = view.snapshot
   const schema = currentSchema(md)!
   const names = fieldNames(schema)
   const spec = md['partition-specs'].find((s) => s['spec-id'] === md['default-spec-id'])
@@ -233,22 +286,40 @@ export function TablePage() {
     sort: new Map(order?.fields.map((f) => [f['source-id'], `${f.direction}, ${f['null-order']}`]) ?? []),
   }
 
+  const current = view.kind === 'current'
+
   return (
     <div className="flex flex-col gap-5">
       {header}
+      {!current && (
+        <div role="status" className="flex flex-wrap items-center gap-2 rounded-[var(--radius-card)] border border-warning/40 bg-warning-subtle px-3 py-2 text-[12.5px] text-warning">
+          <Clock className="size-4 shrink-0" />
+          <span>
+            Viewing <span className="font-mono font-semibold">{view.label}</span>
+            {snap && <> as of {formatDateTime(snap['timestamp-ms'])}</>}. Statistics, overview and schema show this snapshot; preview, properties and all edits apply to the current table.
+          </span>
+          <Button size="sm" variant="outline" className="ml-auto" onClick={() => setAt('')}>
+            Back to current
+          </Button>
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
         <StatCard label="Records" value={<span title={formatNumber(summaryNumber(snap, 'total-records'))}>{formatCompact(summaryNumber(snap, 'total-records') ?? (snap ? undefined : 0))}</span>} />
         <StatCard label="Data files" value={formatNumber(summaryNumber(snap, 'total-data-files') ?? (snap ? undefined : 0))} />
         <StatCard label="Size" value={formatBytes(summaryNumber(snap, 'total-files-size') ?? (snap ? undefined : 0))} />
         <StatCard label="Snapshots" value={formatNumber(md.snapshots?.length ?? 0)} />
-        <StatCard label="Last commit" value={<span className="text-[18px]">{formatRelative(md['last-updated-ms'])}</span>} hint={formatDateTime(md['last-updated-ms'])} />
+        {current ? (
+          <StatCard label="Last commit" value={<span className="text-[18px]">{formatRelative(md['last-updated-ms'])}</span>} hint={formatDateTime(md['last-updated-ms'])} />
+        ) : (
+          <StatCard label="Snapshot committed" value={<span className="text-[18px]">{formatRelative(snap?.['timestamp-ms'])}</span>} hint={formatDateTime(snap?.['timestamp-ms'])} />
+        )}
       </div>
 
-      <Tabs value={tab} onValueChange={(v) => setSearch({ tab: v }, { replace: true })}>
+      <Tabs value={tab} onValueChange={(v) => setAt(at, v)}>
         <TabsList className="overflow-x-auto">
           <TabsTrigger value="overview" icon={<Info />}>Overview</TabsTrigger>
           <TabsTrigger value="preview" icon={<Rows3 />}>Preview</TabsTrigger>
-          <TabsTrigger value="schema" icon={<ListTree />} count={schema.fields.length}>Schema</TabsTrigger>
+          <TabsTrigger value="schema" icon={<ListTree />} count={(view.schema ?? schema).fields.length}>Schema</TabsTrigger>
           <TabsTrigger value="partitions" icon={<Layers />}>Partitioning</TabsTrigger>
           <TabsTrigger value="snapshots" icon={<GitCommitHorizontal />} count={md.snapshots?.length ?? 0}>Snapshots</TabsTrigger>
           <TabsTrigger value="maintenance" icon={<Wrench />}>Maintenance</TabsTrigger>
@@ -258,10 +329,11 @@ export function TablePage() {
           <TabsTrigger value="access" icon={<KeyRound />}>Access</TabsTrigger>
         </TabsList>
         <TabsContent value="overview">
-          <OverviewTab data={q.data} wh={wh} />
+          <OverviewTab data={q.data} wh={wh} view={view} />
         </TabsContent>
         <TabsContent value="preview">
-          <PreviewTab cluster={cluster} wh={wh} ns={ns} table={table} currentSnapshot={snap ? String(snap['snapshot-id']) : undefined} />
+          {!current && <p className="mb-3 text-[12.5px] text-muted">Preview always reads the current snapshot of main.</p>}
+          <PreviewTab cluster={cluster} wh={wh} ns={ns} table={table} currentSnapshot={md['current-snapshot-id'] != null ? String(md['current-snapshot-id']) : undefined} />
         </TabsContent>
         <TabsContent value="schema">
           <div className="mb-3 flex justify-end">
@@ -269,7 +341,7 @@ export function TablePage() {
               <GitCompare /> Evolve schema
             </Button>
           </div>
-          <SchemaTree schemas={md.schemas} currentId={md['current-schema-id']} markers={markers} />
+          <SchemaTree schemas={md.schemas} currentId={md['current-schema-id']} initialId={view.schema?.['schema-id']} markers={markers} />
         </TabsContent>
         <TabsContent value="partitions">
           <PartitionsTab md={md} schema={schema} onEvolveSpec={() => setDialog({ kind: 'spec' })} onEvolveSort={() => setDialog({ kind: 'sort' })} />
@@ -282,6 +354,8 @@ export function TablePage() {
               onCreateRef: (snapshot) => setDialog({ kind: 'ref', snapshot }),
               onEditRef: (name) => setDialog({ kind: 'ref', name }),
               onRemoveRef: (name) => setDialog({ kind: 'remove-ref', name }),
+              onExpire: (snapshots) => setDialog({ kind: 'expire', snapshots }),
+              onViewAt: (id) => setAt(`snap:${id}`, 'overview'),
             }}
           />
         </TabsContent>
@@ -334,6 +408,8 @@ export function TablePage() {
             return <RefDialog {...base} open snapshotId={dialog.snapshot} editName={dialog.name} />
           case 'remove-ref':
             return <RemoveRefDialog {...base} open name={dialog.name} />
+          case 'expire':
+            return <ExpireSnapshotsDialog {...base} open snapshotIds={dialog.snapshots} />
         }
         return null
       })()}

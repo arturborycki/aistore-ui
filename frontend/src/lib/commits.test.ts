@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import type { TableMetadata } from './iceberg'
+import type { NestedField, TableMetadata } from './iceberg'
 import { stringifyJSON } from './json'
 import {
   assignPartitionFieldIds,
   createRefChange,
   propertiesChange,
   removeRefChange,
+  removeSnapshotsChange,
   rollbackChange,
   schemaChange,
   sortChange,
@@ -15,7 +16,7 @@ import {
   transformsFor,
   upgradeFormatChange,
 } from './commits'
-import { canPromote, droppedIds, fieldFromIceberg, newField, toIcebergFields, validateFields } from './schemaModel'
+import { canPromote, droppedIds, identifierCandidates, fieldFromIceberg, newField, toIcebergFields, validateFields } from './schemaModel'
 
 const md = {
   'format-version': 2,
@@ -136,5 +137,55 @@ describe('change sets', () => {
     const other = { namespace: ['ns'], name: 'u' }
     set = stageChange(set, propertiesChange({ ...md, 'table-uuid': 'u-2' }, other, { a: '1' }, []))
     expect(toTransaction(set)['table-changes'].map((c) => c.identifier.name)).toEqual(['t', 't', 'u'])
+  })
+})
+
+describe('snapshot expiry and row keys', () => {
+  const withSnaps = {
+    ...md,
+    'current-snapshot-id': '9007199254740993',
+    snapshots: [
+      { 'snapshot-id': '9007199254740991', 'timestamp-ms': 1, summary: { operation: 'append' } },
+      { 'snapshot-id': '9007199254740992', 'timestamp-ms': 2, summary: { operation: 'append' } },
+      { 'snapshot-id': '9007199254740993', 'timestamp-ms': 3, summary: { operation: 'append' } },
+    ],
+    refs: { main: { 'snapshot-id': '9007199254740993', type: 'branch' }, v1: { 'snapshot-id': '9007199254740992', type: 'tag' } },
+  } as unknown as TableMetadata
+  const id = { namespace: ['ns'], name: 't' }
+
+  it('removes unreferenced snapshots with exact 64-bit ids and asserts every ref', () => {
+    const c = removeSnapshotsChange(withSnaps, id, ['9007199254740991'])
+    expect(stringifyJSON(c.updates)).toBe('[{"action":"remove-snapshots","snapshot-ids":[9007199254740991]}]')
+    expect(c.requirements.filter((r) => r.type === 'assert-ref-snapshot-id').map((r) => r.ref)).toEqual(['main', 'v1'])
+  })
+
+  it('refuses to remove referenced snapshots', () => {
+    expect(() => removeSnapshotsChange(withSnaps, id, ['9007199254740992'])).toThrow(/referenced/)
+    expect(() => removeSnapshotsChange(withSnaps, id, [])).toThrow()
+  })
+
+  it('replaces identifier fields only when asked', () => {
+    const fields = md.schemas[0].fields
+    const keep = schemaChange(md, id, fields, 3, 's')
+    expect((keep.updates[0].schema as { 'identifier-field-ids'?: number[] })['identifier-field-ids']).toEqual([1])
+    const none = schemaChange(md, id, fields, 3, 's', [])
+    expect((none.updates[0].schema as { 'identifier-field-ids'?: number[] })['identifier-field-ids']).toBeUndefined()
+  })
+})
+
+describe('identifier candidates', () => {
+  it('accepts required primitives through required structs only', () => {
+    const fields = [
+      { id: 1, name: 'id', type: 'long', required: true },
+      { id: 2, name: 'score', type: 'double', required: true },
+      { id: 3, name: 'opt', type: 'string', required: false },
+      { id: 4, name: 'k', type: { type: 'struct', fields: [{ id: 5, name: 'region', type: 'string', required: true }] }, required: true },
+      { id: 6, name: 'o', type: { type: 'struct', fields: [{ id: 7, name: 'x', type: 'int', required: true }] }, required: false },
+      { id: 8, name: 'l', type: { type: 'list', 'element-id': 9, element: 'int', 'element-required': true }, required: true },
+    ] as NestedField[]
+    expect(identifierCandidates(fields)).toEqual([
+      { id: 1, path: 'id' },
+      { id: 5, path: 'k.region' },
+    ])
   })
 })

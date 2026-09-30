@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowUpCircle, GitBranch, History, Tag } from 'lucide-react'
+import { ArrowUpCircle, GitBranch, History, KeyRound, Tag } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogBody, DialogContent, DialogFooter } from '@/components/ui/dialog'
 import { Field, Input, Label } from '@/components/ui/input'
@@ -10,6 +10,7 @@ import {
   createRefChange,
   REF_NAME_RE,
   removeRefChange,
+  removeSnapshotsChange,
   rollbackChange,
   schemaChange,
   sortChange,
@@ -33,7 +34,7 @@ import {
   type TableMetadata,
 } from '@/lib/iceberg'
 import type { Int64 } from '@/lib/json'
-import { droppedIds, fieldFromIceberg, toIcebergFields, validateFields } from '@/lib/schemaModel'
+import { droppedIds, fieldFromIceberg, identifierCandidates, toIcebergFields, validateFields } from '@/lib/schemaModel'
 import { CommitBar, type TableCommit } from './CommitBar'
 import { PartitionFieldsEditor, partitionProblems, SortFieldsEditor, sourceColumns } from './LayoutEditors'
 import { SchemaEditor, withoutDropped, type DraftField } from './SchemaEditor'
@@ -68,9 +69,12 @@ function describeChange(c: FieldChange): string {
 export function EvolveSchemaDialog({ md, id, commit, open, onOpenChange }: Base) {
   const cur = currentSchema(md)!
   const [fields, setFields] = useState<DraftField[]>(() => cur.fields.map(fieldFromIceberg))
+  const curIdents = useMemo(() => cur['identifier-field-ids'] ?? [], [cur])
+  const [idents, setIdents] = useState<number[]>(curIdents)
   useEffect(() => {
     if (open) {
       setFields(cur.fields.map(fieldFromIceberg))
+      setIdents(curIdents)
       commit.reset()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -81,6 +85,11 @@ export function EvolveSchemaDialog({ md, id, commit, open, onOpenChange }: Base)
   const built = useMemo(() => toIcebergFields(kept, md['last-column-id'] + 1), [kept, md])
   const changes = useMemo(() => diffSchemas(cur, { type: 'struct', fields: built.fields }), [cur, built])
   // Only existing columns can be "reordered"; new ones are additions.
+  const candidates = useMemo(() => identifierCandidates(built.fields), [built])
+  const identsChanged = [...idents].sort().join(',') !== [...curIdents].sort().join(',')
+  const identProblems = idents
+    .filter((i) => !candidates.some((c) => c.id === i) && !droppedIds(cur, kept).includes(i))
+    .map((i) => `${fieldNames(cur).get(i) ?? i} is part of the row key, so it must stay a required primitive (not float or double); remove it from the row key first`)
   const orderChanged =
     kept.filter((f) => f.id != null).map((f) => f.id).join(',') !== cur.fields.map((f) => f.id).filter((i) => kept.some((k) => k.id === i)).join(',')
 
@@ -93,17 +102,19 @@ export function EvolveSchemaDialog({ md, id, commit, open, onOpenChange }: Base)
     const why = [
       spec?.fields.some((f) => f['source-id'] === fid) && 'the current partition spec',
       order?.fields.some((f) => f['source-id'] === fid) && 'the current sort order',
-      cur['identifier-field-ids']?.includes(fid) && 'the identifier (row key) fields',
+      idents.includes(fid) && 'the row key (identifier fields)',
     ].filter(Boolean)
     return why.length ? [`${names.get(fid)} is used by ${why.join(' and ')}; change that first`] : []
   })
-  const all = [...problems.map((p) => p.message), ...blocked]
-  const nothing = changes.length === 0 && !orderChanged
+  const all = [...problems.map((p) => p.message), ...blocked, ...identProblems]
+  const nothing = changes.length === 0 && !orderChanged && !identsChanged
+  const pathOf = (i: number) => candidates.find((c) => c.id === i)?.path ?? fieldNames(cur).get(i) ?? String(i)
+  const identSummary = `Row key: ${idents.length ? idents.map(pathOf).join(', ') : 'none'}`
 
   const build = (): TableChange | null => {
     if (all.length || nothing) return null
-    const summary = changes.length ? changes.map(describeChange).join('; ') : 'Reorder columns'
-    return schemaChange(md, id, built.fields, built.lastId, `Schema: ${summary}`)
+    const parts = [...changes.map(describeChange), ...(orderChanged ? ['Reorder columns'] : []), ...(identsChanged ? [identSummary] : [])]
+    return schemaChange(md, id, built.fields, built.lastId, `Schema: ${parts.join('; ')}`, idents)
   }
 
   return (
@@ -111,6 +122,36 @@ export function EvolveSchemaDialog({ md, id, commit, open, onOpenChange }: Base)
       <DialogContent title="Evolve schema" description="Iceberg evolves schemas in place: renames and drops never rewrite data, and column ids keep history intact." className="max-w-5xl" wide>
         <DialogBody className="max-h-[68vh]">
           <SchemaEditor fields={fields} onChange={setFields} problems={problems} evolution formatVersion={md['format-version']} />
+          <fieldset className="rounded-[var(--radius-card)] border border-border px-3 py-2.5">
+            <legend className="flex items-center gap-1.5 px-1 text-[12px] font-medium">
+              <KeyRound className="size-3.5" /> Row key (identifier fields)
+            </legend>
+            <p className="mb-2 text-[12px] text-muted">Columns that identify a row, used by engines for upserts and equality deletes. Only required primitive columns (not float or double) outside lists and maps qualify.</p>
+            {candidates.length === 0 ? (
+              <p className="text-[12.5px] text-subtle">No column qualifies. Mark an existing primitive column as required to use it here.</p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {candidates.map((c) => {
+                  const on = idents.includes(c.id)
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() => setIdents(on ? idents.filter((x) => x !== c.id) : [...idents, c.id])}
+                      className={cn(
+                        'inline-flex h-7 items-center gap-1 rounded-[var(--radius-control)] border px-2 font-mono text-[12px]',
+                        on ? 'border-accent bg-accent-subtle text-accent-text' : 'border-border text-muted hover:bg-surface',
+                      )}
+                    >
+                      {on && <KeyRound className="size-3" />}
+                      {c.path}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </fieldset>
           <div className="rounded-[var(--radius-card)] border border-border bg-bg-subtle px-3 py-2.5">
             <div className="mb-1 text-[12px] font-medium">
               Pending changes → schema {Math.max(...md.schemas.map((s) => s['schema-id'])) + 1}
@@ -125,10 +166,11 @@ export function EvolveSchemaDialog({ md, id, commit, open, onOpenChange }: Base)
                   </li>
                 ))}
                 {orderChanged && <li className="font-mono text-[12px]">Reorder columns</li>}
+                {identsChanged && <li className="font-mono text-[12px]">{identSummary}</li>}
               </ul>
             )}
           </div>
-          {blocked.map((b) => (
+          {[...blocked, ...identProblems].map((b) => (
             <InlineError key={b} error={new Error(b)} />
           ))}
         </DialogBody>
@@ -257,6 +299,38 @@ export function RollbackDialog({ md, id, commit, open, onOpenChange, snapshotId 
         </DialogBody>
         <DialogFooter className="block">
           <CommitBar commit={commit} build={() => rollbackChange(md, id, target['snapshot-id'])} onDone={() => onOpenChange(false)} onCancel={() => onOpenChange(false)} applyLabel="Roll back main" />
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+export function ExpireSnapshotsDialog({ md, id, commit, open, onOpenChange, snapshotIds }: Base & { snapshotIds: Int64[] }) {
+  useEffect(() => {
+    if (open) commit.reset()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
+  const chosen = (md.snapshots ?? []).filter((s) => snapshotIds.includes(s['snapshot-id'])).sort((a, b) => a['timestamp-ms'] - b['timestamp-ms'])
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent title={`Expire ${chosen.length} snapshot${chosen.length === 1 ? '' : 's'}`} description="Removes the snapshots from the table history (remove-snapshots)." wide>
+        <DialogBody>
+          <ul className="max-h-60 overflow-y-auto rounded-[var(--radius-control)] border border-border text-[12.5px]">
+            {chosen.map((s) => (
+              <li key={String(s['snapshot-id'])} className="flex items-center gap-3 border-b border-border px-3 py-1.5 last:border-0">
+                <span className="font-mono text-[12px]">{String(s['snapshot-id'])}</span>
+                <Badge>{s.summary?.operation ?? 'unknown'}</Badge>
+                <span className="ml-auto text-muted">{formatDateTime(s['timestamp-ms'])}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="flex items-start gap-2 rounded-[var(--radius-control)] bg-warning-subtle px-3 py-2 text-[12.5px] text-warning">
+            <History className="mt-0.5 size-4 shrink-0" />
+            You can no longer read, roll back to or tag these snapshots. Files that only they reference become unreferenced and are reclaimed by table maintenance. This cannot be undone.
+          </p>
+        </DialogBody>
+        <DialogFooter className="block">
+          <CommitBar commit={commit} build={() => removeSnapshotsChange(md, id, chosen.map((s) => s['snapshot-id']))} disabled={chosen.length === 0} onDone={() => onOpenChange(false)} onCancel={() => onOpenChange(false)} applyLabel="Expire snapshots" />
         </DialogFooter>
       </DialogContent>
     </Dialog>

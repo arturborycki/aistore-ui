@@ -17,14 +17,30 @@ export function Switch({ checked, onCheckedChange, id, disabled }: { checked: bo
   )
 }
 
-export function Checkbox({ checked, onCheckedChange, id, className }: { checked: boolean; onCheckedChange: (v: boolean) => void; id?: string; className?: string }) {
+export function Checkbox({
+  checked,
+  onCheckedChange,
+  id,
+  className,
+  label,
+  disabled,
+}: {
+  checked: boolean
+  onCheckedChange: (v: boolean) => void
+  id?: string
+  className?: string
+  label?: string
+  disabled?: boolean
+}) {
   return (
     <C.Root
       id={id}
+      aria-label={label}
+      disabled={disabled}
       checked={checked}
       onCheckedChange={(v) => onCheckedChange(v === true)}
       className={cn(
-        'flex size-4 shrink-0 items-center justify-center rounded-[4px] border border-border-strong bg-bg data-[state=checked]:border-accent data-[state=checked]:bg-accent',
+        'flex size-4 shrink-0 items-center justify-center rounded-[4px] border border-border-strong bg-bg data-[state=checked]:border-accent data-[state=checked]:bg-accent disabled:cursor-not-allowed disabled:opacity-40',
         className,
       )}
     >

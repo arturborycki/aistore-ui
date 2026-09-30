@@ -232,6 +232,9 @@ func applyTableUpdates(md map[string]any, updates []any) error {
 					return bad("default column values are not supported")
 				}
 			}
+			if err := validateIdentifiers(s); err != nil {
+				return err
+			}
 			id := maxID(arr(md["schemas"]), "schema-id") + 1
 			s["schema-id"] = id
 			md["schemas"] = append(arr(md["schemas"]), s)
@@ -341,6 +344,38 @@ func applyTableUpdates(md map[string]any, updates []any) error {
 				return bad("reference %q does not exist", name)
 			}
 			delete(refs, name)
+		case "remove-snapshots":
+			ids := arr(up["snapshot-ids"])
+			if len(ids) == 0 {
+				return bad("snapshot-ids is required")
+			}
+			for _, id := range ids {
+				if findSnapshot(md, id) == nil {
+					return bad("snapshot %v does not exist", id)
+				}
+				for name, r := range obj(md["refs"]) {
+					if numEq(obj(r)["snapshot-id"], id) {
+						return bad("snapshot %v is referenced by %s", id, name)
+					}
+				}
+			}
+			drop := func(list []any) []any {
+				out := []any{}
+				for _, e := range list {
+					keep := true
+					for _, id := range ids {
+						if numEq(obj(e)["snapshot-id"], id) {
+							keep = false
+						}
+					}
+					if keep {
+						out = append(out, e)
+					}
+				}
+				return out
+			}
+			md["snapshots"] = drop(arr(md["snapshots"]))
+			md["snapshot-log"] = drop(arr(md["snapshot-log"]))
 		case "set-properties":
 			props := obj(md["properties"])
 			if props == nil {
@@ -696,4 +731,38 @@ func (c *Catalog) transaction(w http.ResponseWriter, r *http.Request, wh *whStat
 		s.t.install(s.md)
 	}
 	w.WriteHeader(204)
+}
+
+// validateIdentifiers applies Iceberg's rules for identifier (row key) fields:
+// required primitive, not float/double, and only nested in required structs.
+func validateIdentifiers(schema map[string]any) error {
+	eligible := map[int64]bool{}
+	var walk func(fields []map[string]any)
+	walk = func(fields []map[string]any) {
+		for _, f := range fields {
+			req, _ := f["required"].(bool)
+			if !req {
+				continue
+			}
+			id, _ := num(f["id"])
+			switch t := f["type"].(type) {
+			case string:
+				if t != "float" && t != "double" {
+					eligible[id] = true
+				}
+			case map[string]any:
+				if t["type"] == "struct" {
+					walk(fieldsOf(t["fields"]))
+				}
+			}
+		}
+	}
+	walk(fieldsOf(schema["fields"]))
+	for _, v := range arr(schema["identifier-field-ids"]) {
+		id, _ := num(v)
+		if !eligible[id] {
+			return bad("field %d cannot be an identifier field: it must be a required primitive (not float or double) outside lists and maps and not inside an optional struct", id)
+		}
+	}
+	return nil
 }

@@ -24,5 +24,7 @@ export function parseJSON<T = unknown>(text: string): T {
 
 /** Serialises a request body, emitting *snapshot-id strings as exact JSON integers. */
 export function stringifyJSON(value: unknown): string {
-  return JSON.stringify(value).replace(/("(?:[a-z-]*snapshot-id)"\s*:\s*)"(-?\d+)"/g, '$1$2')
+  return JSON.stringify(value)
+    .replace(/("(?:[a-z-]*snapshot-id)"\s*:\s*)"(-?\d+)"/g, '$1$2')
+    .replace(/("snapshot-ids"\s*:\s*)\[((?:"-?\d+",?)*)\]/g, (_m, key: string, list: string) => `${key}[${list.replace(/"/g, '')}]`)
 }
