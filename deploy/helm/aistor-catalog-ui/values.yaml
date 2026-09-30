@@ -44,6 +44,14 @@ config:
       endpoint: "https://aistor.example.com"
       region: us-east-1
       # caFile: /etc/aistor-ui/ca/ca.crt
+  # Apache Ossie semantic models: a versioned bucket on each cluster, read and
+  # written with each user's own credentials. serving exposes them read-only to
+  # tools and agents (/ossie/v1 REST and /ossie/mcp) with OIDC bearer tokens.
+  semantic:
+    enabled: false
+    bucket: aistor-semantics
+    serving:
+      enabled: false
   # audit:
   #   webhookUrl: https://siem.example.com/hooks/aistor
   #   webhookSecretFile: /etc/aistor-ui/secrets/audit-webhook-secret

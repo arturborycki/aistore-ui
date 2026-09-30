@@ -249,3 +249,50 @@ func (o *OIDC) STSToken(t *session.OIDCTokens) string {
 	}
 	return t.IDToken
 }
+
+// Bearer is an identity proven by a bearer token (an OIDC ID or access token
+// in JWT form) presented to the API by a tool or agent.
+type Bearer struct {
+	Subject  string
+	Username string
+	Expiry   time.Time
+}
+
+// VerifyBearer checks a JWT bearer token: signature (provider keys), issuer,
+// expiry, and that its audience includes one of audiences (default: the
+// client ID). Opaque (non-JWT) access tokens are not accepted.
+func (o *OIDC) VerifyBearer(ctx context.Context, token string, audiences []string) (*Bearer, error) {
+	if err := o.init(ctx); err != nil {
+		return nil, err
+	}
+	if len(audiences) == 0 {
+		audiences = []string{o.cfg.ClientID}
+	}
+	v := o.provider.Verifier(&oidc.Config{SkipClientIDCheck: true})
+	idt, err := v.Verify(o.withClient(ctx), token)
+	if err != nil {
+		return nil, err
+	}
+	ok := false
+	for _, a := range idt.Audience {
+		for _, want := range audiences {
+			ok = ok || a == want
+		}
+	}
+	if !ok {
+		return nil, fmt.Errorf("token audience %v is not accepted", idt.Audience)
+	}
+	claims := map[string]any{}
+	_ = idt.Claims(&claims)
+	b := &Bearer{Subject: idt.Subject, Expiry: idt.Expiry}
+	for _, k := range []string{o.cfg.UsernameClaim, "preferred_username", "email", "client_id", "azp"} {
+		if s, _ := claims[k].(string); k != "" && s != "" {
+			b.Username = s
+			break
+		}
+	}
+	if b.Username == "" {
+		b.Username = idt.Subject
+	}
+	return b, nil
+}

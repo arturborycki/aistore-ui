@@ -1,6 +1,7 @@
 # Semantic layer with Apache Ossie — Design
 
-Status: proposal. Companion to [DESIGN.md](DESIGN.md).
+Status: **implemented** (all five steps, S1–S5). Companion to [DESIGN.md](DESIGN.md).
+The notes at the end list where the implementation differs from the proposal.
 
 The goal is to let catalog users describe **what the data means**, not only how
 it is stored. That covers business names, descriptions, synonyms, keys, joins,
@@ -412,3 +413,22 @@ S1–S2 are useful on their own: documented tables, published as standard Ossie 
    (`ossie.models=retail`), so engines and other catalog UIs can discover models?
    It costs a table commit per change, so it is off by default.
 7. The bucket name and who creates it (an admin step, or the UI when the caller may).
+
+---
+
+## 12. Implementation notes (differences from the proposal)
+
+- **Serving paths include the cluster:** `/ossie/v1/models/{cluster}/{warehouse}/{namespace}/{model}`, with namespace levels joined by `%1F` (as in the UI API). The index is `/ossie/v1/models`, and the Ossie JSON Schema is public at `/ossie/v1/schema`.
+- **Bearer tokens are JWTs only** (ID or access tokens from the configured issuer). The checks are signature, issuer and expiry, plus an audience in `semantic.serving.audiences` (default: the client ID). Exchanged AIStor credentials are cached per token and cluster until they expire. Rate limits are per token subject and shared through Redis when configured.
+- **MCP:**
+  - Stateless Streamable HTTP with JSON responses (no SSE stream).
+  - Protocol revisions 2025-06-18, 2025-03-26 and 2024-11-05.
+  - Read-only tools, with `structuredContent` for JSON results.
+  - Foreign `Origin` headers are rejected (DNS-rebinding protection).
+  - `/.well-known/oauth-protected-resource` points clients at the issuer.
+- **Delete** reads the object and compares its ETag before `DELETE`, because conditional deletes are not universally supported. Saves use conditional `PutObject` (`If-Match` / `If-None-Match: *`).
+- **Editors are recorded** as `x-amz-meta-aistor-ui-editor` on each version. The history view reads it with `HEAD` for the newest 30 versions. Direct S3 writers can set anything there; the audit log is authoritative.
+- **Two helper endpoints** keep previews exact: `POST /semantic/render` (canonical YAML of a draft) and `POST /semantic/parse` (YAML to model, for the YAML editor and repairs).
+- **Relationship suggestions** match a field to another dataset's single-column primary key by name (`customer_id`, or `id` ↔ `<dataset>_id`) and type.
+- **Not implemented (open question 6):** writing a pointer property into Iceberg tables. Usage is found by scanning models (`semantic.maxScan`), which is enough for the table Semantics tab and the schema-evolution warning.
+- **Upstream conformance:** the official `ossie-schema.json` and the TPC-DS example are vendored under `backend/internal/semantic/`. A unit test imports the example and checks that the canonical output round-trips.

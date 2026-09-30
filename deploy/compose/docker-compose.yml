@@ -49,7 +49,10 @@ services:
         until mc ready local >/dev/null 2>&1; do echo "waiting for AIStor"; sleep 2; done
         mc admin policy create local catalog-admin /policies/catalog-admin.json
         mc admin policy create local catalog-readonly /policies/catalog-readonly.json
-        echo "AIStor catalog policies installed"
+        # Versioned bucket for Apache Ossie semantic models (history and restore).
+        mc mb --ignore-existing local/aistor-semantics
+        mc version enable local/aistor-semantics
+        echo "AIStor catalog policies and semantic model bucket installed"
     restart: "no"
 
   keycloak:

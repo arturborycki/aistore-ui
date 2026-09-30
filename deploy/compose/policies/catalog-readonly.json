@@ -17,6 +17,20 @@
       "Resource": [
         "arn:aws:s3tables:::bucket/*"
       ]
+    },
+    {
+      "Sid": "SemanticModelsRead",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:ListBucket",
+        "s3:ListBucketVersions",
+        "s3:GetObjectVersion"
+      ],
+      "Resource": [
+        "arn:aws:s3:::aistor-semantics",
+        "arn:aws:s3:::aistor-semantics/*"
+      ]
     }
   ]
 }

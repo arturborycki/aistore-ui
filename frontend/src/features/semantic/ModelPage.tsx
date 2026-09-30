@@ -36,7 +36,7 @@ function OverviewPanel({ model, setDraft, cluster, wh, ns, name, doc }: { model:
   const bucket = me.features?.semantic?.bucket
   const fields = model.datasets.reduce((n, d) => n + (d.fields?.length ?? 0), 0)
   const serving = me.features?.semantic?.serving
-  const apiPath = `/ossie/v1/models/${encodeURIComponent(cluster)}/${encodeURIComponent(wh)}/${ns.map(encodeURIComponent).join('.')}/${encodeURIComponent(name)}`
+  const apiPath = `${window.location.origin}/ossie/v1/models/${encodeURIComponent(cluster)}/${encodeURIComponent(wh)}/${encodeURIComponent(ns.join('\u001f'))}/${encodeURIComponent(name)}`
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -63,7 +63,7 @@ function OverviewPanel({ model, setDraft, cluster, wh, ns, name, doc }: { model:
                 { label: 'Object', value: <CopyText value={`s3://${bucket}/${doc.key}`} /> },
                 { label: 'Specification', value: `Apache Ossie ${SPEC_VERSION}` },
                 { label: 'Last saved', value: <span title={formatDateTime(doc.lastModified)}>{formatRelative(doc.lastModified)}{doc.editor ? ` by ${doc.editor}` : ''}</span> },
-                ...(serving ? [{ label: 'Read API', value: <CopyText value={apiPath} /> }] : []),
+                ...(serving ? [{ label: 'Read API (bearer token)', value: <CopyText value={apiPath} /> }, { label: 'MCP endpoint', value: <CopyText value={`${window.location.origin}/ossie/mcp`} /> }] : []),
               ]}
             />
             <div className="mt-3 flex flex-wrap gap-2">

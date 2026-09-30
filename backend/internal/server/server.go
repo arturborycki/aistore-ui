@@ -42,8 +42,10 @@ type Server struct {
 	static   fs.FS
 	version  string
 
-	apiLimiter   rateLimiter
-	loginLimiter rateLimiter
+	apiLimiter    rateLimiter
+	loginLimiter  rateLimiter
+	bearerLimiter rateLimiter
+	stsCache      *stsCache
 
 	// refresh serialises credential renewal per session+cluster.
 	refreshMu  sync.Mutex
@@ -64,11 +66,13 @@ type Options struct {
 func New(o Options) (*Server, error) {
 	s := &Server{
 		cfg: o.Config, log: o.Log, sessions: o.Sessions, audit: o.Audit, static: o.Static, version: o.Version,
-		clients:      map[string]*aistor.Client{},
-		metrics:      newMetrics(),
-		apiLimiter:   newLimiter(o.Config.Limits.RequestsPerMinute),
-		loginLimiter: newLimiter(o.Config.Limits.LoginPerMinute),
-		refreshing:   map[string]*sync.Mutex{},
+		clients:       map[string]*aistor.Client{},
+		metrics:       newMetrics(),
+		apiLimiter:    newLimiter(o.Config.Limits.RequestsPerMinute),
+		loginLimiter:  newLimiter(o.Config.Limits.LoginPerMinute),
+		bearerLimiter: newLimiter(o.Config.Semantic.Serving.RequestsPerMinute),
+		stsCache:      &stsCache{m: map[string]*session.Credentials{}},
+		refreshing:    map[string]*sync.Mutex{},
 	}
 	for _, cl := range o.Config.Clusters {
 		c, err := aistor.NewClient(cl)
@@ -80,6 +84,7 @@ func New(o Options) (*Server, error) {
 	if o.Redis != nil {
 		s.apiLimiter = newRedisLimiter(o.Redis, "api", o.Config.Limits.RequestsPerMinute, o.Log)
 		s.loginLimiter = newRedisLimiter(o.Redis, "login", o.Config.Limits.LoginPerMinute, o.Log)
+		s.bearerLimiter = newRedisLimiter(o.Redis, "bearer", o.Config.Semantic.Serving.RequestsPerMinute, o.Log)
 	}
 	if o.Config.Auth.OIDC.Enabled {
 		oc, err := auth.NewOIDC(o.Config.Auth.OIDC, o.Config.PublicURL().String()+"/auth/oidc/callback")
@@ -100,6 +105,9 @@ func (s *Server) Handler() http.Handler {
 
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	r.Get("/readyz", s.handleReady)
+	if s.cfg.Semantic.Serving.Enabled && s.oidc != nil {
+		s.mountOssie(r)
+	}
 
 	r.Group(func(r chi.Router) {
 		r.Use(s.loadSession, s.csrf)

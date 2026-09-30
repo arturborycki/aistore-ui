@@ -32,3 +32,8 @@ data:
         region: us-east-1
         caFile: /etc/aistor-ui/ca/ca.crt
         stsDuration: 1h
+    # Apache Ossie semantic models (create the bucket and enable versioning first).
+    # semantic:
+    #   enabled: true
+    #   bucket: aistor-semantics
+    #   serving: { enabled: true }   # /ossie/v1 and /ossie/mcp with OIDC bearer tokens

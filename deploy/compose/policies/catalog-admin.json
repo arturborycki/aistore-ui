@@ -4,8 +4,28 @@
     {
       "Sid": "CatalogAdmin",
       "Effect": "Allow",
-      "Action": ["s3tables:*"],
-      "Resource": ["arn:aws:s3tables:::bucket/*"]
+      "Action": [
+        "s3tables:*"
+      ],
+      "Resource": [
+        "arn:aws:s3tables:::bucket/*"
+      ]
+    },
+    {
+      "Sid": "SemanticModelsWrite",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject",
+        "s3:ListBucket",
+        "s3:ListBucketVersions",
+        "s3:GetObjectVersion"
+      ],
+      "Resource": [
+        "arn:aws:s3:::aistor-semantics",
+        "arn:aws:s3:::aistor-semantics/*"
+      ]
     }
   ]
 }

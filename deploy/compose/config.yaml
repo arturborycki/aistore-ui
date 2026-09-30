@@ -32,3 +32,13 @@ clusters:
     endpoint: "http://aistor:9000"
     region: us-east-1
     stsDuration: 1h
+
+# Apache Ossie semantic models, stored in a versioned bucket and read/written
+# with each user's own credentials (see policies/). serving exposes them
+# read-only to tools and agents at /ossie/v1 and /ossie/mcp with Keycloak
+# bearer tokens (audience aistor-ui).
+semantic:
+  enabled: true
+  bucket: aistor-semantics
+  serving:
+    enabled: true

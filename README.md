@@ -12,7 +12,7 @@ See [`docs/DESIGN.md`](docs/DESIGN.md) for the architecture and threat model, an
 
 ## Status
 
-**Phases 0–3 are complete**, plus the hardening round below.
+**Phases 0–3 are complete**, plus the hardening round and the Apache Ossie semantic layer below.
 
 - **Sign-in and security:** SSO (OIDC), LDAP and access-key sign-in; encrypted sessions; step-up re-authentication for destructive actions; a typed allow-list covering every AIStor Tables endpoint.
 - **Browse:** overview, warehouses, nested namespaces, table and view pages (preview, schema history, partitioning, snapshots, maintenance, metadata, access helper), explorer tree, command palette, activity log.
@@ -38,6 +38,49 @@ See [`docs/DESIGN.md`](docs/DESIGN.md) for the architecture and threat model, an
 - **Search:** the command palette (⌘K) searches the whole catalog on the server, using your own credentials, so results only include what you may list. The walk is bounded by a request budget and a deadline, and the palette says when results were cut short or locations were skipped.
 - **Activity:** server-side filters (time, source, outcome, text) with paging, and CSV export (cells are neutralised so spreadsheets cannot evaluate them as formulas).
 - **Accessibility and devices:** WCAG 2.1 AA colour contrast, enforced by an axe scan in e2e; the sidebar becomes an overlay on phones; pages are code-split.
+- **Semantic layer ([Apache Ossie](https://ossie.apache.org/)):** describe what tables mean. See [Semantic models](#semantic-models-apache-ossie) below.
+
+## Semantic models (Apache Ossie)
+
+Semantic models describe the data in business terms: dataset and field descriptions, synonyms, keys, relationships (joins), metrics (SQL) and instructions for AI agents. They are standard [Apache Ossie](https://github.com/apache/ossie) `0.2.0.dev0` documents.
+
+- **Built from the catalog.** Pick tables and each one becomes a dataset: columns become fields (struct leaves as `shipping.city`), types map to Ossie datatypes, column docs become descriptions, and the row key becomes the primary key.
+- **Where to edit them:**
+  - a namespace's **Semantic models** tab;
+  - the model editor: overview, datasets, relationships with join suggestions and a diagram, metrics with `dataset.field` autocomplete, YAML, history, catalog sync;
+  - a table's **Semantics** tab.
+- **Validated.** Every edit is checked live against the official JSON Schema, for structure (unique names, joins and metric references that exist), and against the catalog (columns and types).
+- **Stored as plain YAML objects** in a bucket (`s3://<bucket>/<warehouse>/<namespace…>/<model>.ossie.yaml`):
+  - they are read and written with each user's own AIStor credentials, so PBAC on the bucket prefix decides who may read or edit;
+  - saves are conditional (`If-Match`), so concurrent edits conflict instead of overwriting;
+  - with bucket versioning you get history, diff and restore;
+  - every change is audited.
+- **Kept in sync.** Datasets record the table UUID and fields record the Iceberg field ID (in an `AISTOR_CATALOG` custom extension, which other tools ignore).
+  - Renamed tables and columns, dropped columns, type changes, new columns and row-key changes are detected and fixed in one click.
+  - The schema evolution dialog warns when a column you change is used by a model.
+- **Served to tools and agents** (`semantic.serving`). The endpoints are read-only and authenticated with OIDC bearer tokens. Each token is exchanged for the caller's own AIStor credentials, as at login.
+  - `GET /ossie/v1/models`: index of models the caller may read.
+  - `GET /ossie/v1/models/{cluster}/{warehouse}/{namespace}/{model}`: YAML, or JSON with `?format=json` or `Accept: application/json`. Supports ETag and `If-None-Match`. Namespace levels are joined with `%1F`.
+  - `GET /ossie/v1/search?q=`: search names, synonyms and descriptions.
+  - `GET /ossie/v1/schema`: the Ossie JSON Schema (public).
+  - `POST /ossie/mcp`: an MCP server (Streamable HTTP, JSON responses) with the read-only tools `list_models`, `get_model` and `search_semantics`. `/.well-known/oauth-protected-resource` tells MCP clients where to get tokens.
+
+```bash
+# A model as YAML (token from your IdP; its audience must be accepted, see semantic.serving.audiences)
+curl -H "Authorization: Bearer $TOKEN" https://catalog.example.com/ossie/v1/models/prod/analytics/sales/retail
+# MCP
+curl -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search_semantics","arguments":{"query":"revenue"}}}' \
+  https://catalog.example.com/ossie/mcp
+```
+
+**Setup:**
+1. Create the bucket and enable versioning (the Compose stack does this).
+2. Grant `s3:GetObject`, `s3:ListBucket`, `s3:ListBucketVersions` and `s3:GetObjectVersion` (readers), plus `s3:PutObject` and `s3:DeleteObject` (editors) on it. See `deploy/compose/policies/`.
+3. Set `semantic.enabled`.
+4. For serving, AIStor must accept the same tokens for `AssumeRoleWithWebIdentity`.
+
+The design is in [docs/SEMANTIC_LAYER.md](docs/SEMANTIC_LAYER.md).
 
 ## Quick start (no AIStor needed)
 
@@ -113,6 +156,10 @@ The server reads a YAML file (`-config`, or `AISTOR_UI_CONFIG`). `${VAR}` refere
 | `auth.adminGroups` / `adminUsers` | Who may see everyone's activity. This grants **no** catalog permissions |
 | `clusters[]` | `id`, `name`, `endpoint`, `stsEndpoint`, `region`, `caFile`, `stsDuration`, `timeout` |
 | `limits` | `requestsPerMinute` (per session), `loginPerMinute` (per IP), `maxBodyBytes`, `previewMaxRows` (≤1000). With a Redis session store, the limits are shared by all replicas (fixed one-minute windows). If Redis is unreachable, requests are allowed rather than failed |
+| `semantic.enabled` / `bucket` | Apache Ossie semantic models stored in this bucket on each cluster (versioning recommended) |
+| `semantic.maxModelBytes` / `maxScan` | Largest model document (default 1 MiB); how many models a search, usage check or index reads (default 200) |
+| `semantic.catalogAliases` | Warehouse → catalog name that engines use, for dataset `source` values (default: the warehouse name) |
+| `semantic.serving` | `enabled` (requires `auth.oidc`), `audiences` accepted in bearer tokens (default: the OIDC client ID), `requestsPerMinute` per token subject (default 120) |
 | `audit.webhookUrl` | POST each audit record as JSON. Records are always logged to stdout as well |
 | `audit.webhookSecret[File]` | Sign webhook deliveries: `X-Aistor-Audit-Timestamp` (unix seconds) and `X-Aistor-Audit-Signature: sha256=<hex HMAC-SHA256(secret, timestamp + "." + body)>`. Receivers should reject timestamps older than a few minutes |
 
@@ -130,6 +177,8 @@ backend/            Go BFF
   internal/server         HTTP wiring, auth handlers, middleware
   internal/aistor         SigV4 catalog client + STS
   internal/session        encrypted sessions (memory / Redis)
+  internal/semantic       Apache Ossie models: parse/validate (embedded official schema), canonical YAML,
+                          generation from Iceberg, drift, object storage, UI API, /ossie/v1 and MCP
   internal/audit, auth, config, web (embedded SPA)
 frontend/           React SPA (src/features, src/layout, src/components/ui, src/lib)
 e2e/                Playwright tests
@@ -146,6 +195,7 @@ The e2e suite covers sign-in, browsing, every editor, conflicts, change sets, ti
 CI (`.github/workflows/`) runs:
 
 - `ci.yml`: Go (gofmt, vet, race tests), frontend (lint, typecheck, unit, build), Helm lint plus kubeconform for the chart and kustomize, e2e, and a multi-arch image.
+- The e2e suite also covers semantic models end to end: generate, document, relationships, metrics, YAML, history, conflicts, read-only denial, drift fixing after a column rename, search, import and an axe scan of every editor tab.
 - `security.yml` (on PRs, main and weekly): govulncheck, `npm audit`, CodeQL (Go, TypeScript), a Trivy image scan with SARIF and SBOM, a Trivy misconfiguration scan of the Dockerfile and manifests, and an OWASP ZAP baseline against the running app (accepted findings are in `.zap/rules.tsv`).
 - Dependabot keeps Go, npm, Docker and Actions dependencies current.
 
