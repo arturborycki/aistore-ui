@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hamba/avro/v2/ocf"
+	"github.com/iskorotkov/avro/v2/ocf"
 )
 
 // Iceberg v2 manifest list and manifest entry schemas (with field ids, as

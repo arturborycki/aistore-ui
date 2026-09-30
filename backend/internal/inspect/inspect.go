@@ -18,8 +18,17 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/hamba/avro/v2/ocf"
+	"github.com/iskorotkov/avro/v2"
+	"github.com/iskorotkov/avro/v2/ocf"
 )
+
+// avroAPI bounds what a (possibly hostile) manifest can make the decoder
+// allocate: without these limits a declared block count is trusted as is.
+var avroAPI = avro.Config{
+	MaxByteSliceSize:  8 << 20,
+	MaxSliceAllocSize: 1 << 20,
+	MaxMapAllocSize:   1 << 20,
+}.Freeze()
 
 // Fetch reads an object given as bucket and key.
 type Fetch func(ctx context.Context, bucket, key string) ([]byte, error)
@@ -299,7 +308,7 @@ func records(ctx context.Context, fetch Fetch, uri string, lim Limits) ([]map[st
 	if len(raw) > lim.MaxObjectBytes {
 		return nil, nil, fmt.Errorf("%s is larger than %d bytes", uri, lim.MaxObjectBytes)
 	}
-	dec, err := ocf.NewDecoder(bytes.NewReader(trimTrailing(raw)))
+	dec, err := ocf.NewDecoder(bytes.NewReader(trimTrailing(raw)), ocf.WithDecoderConfig(avroAPI))
 	if err != nil {
 		return nil, nil, fmt.Errorf("read %s: %w", uri, err)
 	}

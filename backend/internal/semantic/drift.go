@@ -104,7 +104,7 @@ func DetectDrift(m *Model, res []Resolution) []DriftItem {
 				}
 			}
 			if len(want) == len(t.IdentifierIDs) && !sameSet(want, d.PrimaryKey) {
-				add("key_changed", d.Name, "", fmt.Sprintf("The table's row key is %s; the dataset's primary key is %s.", strings.Join(want, ", "), orNone(d.PrimaryKey)), "Set primary_key to "+strings.Join(want, ", "))
+				add("key_changed", d.Name, "", fmt.Sprintf("The row key of the table is %s; the primary key of the dataset is %s.", strings.Join(want, ", "), orNone(d.PrimaryKey)), "Set primary_key to "+strings.Join(want, ", "))
 			}
 		}
 	}
