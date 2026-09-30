@@ -41,6 +41,10 @@ e2e: build ## Browser tests against the in-memory AIStor test server
 e2e-live: ## Read-only UI walk against a running UI and real AIStor (LIVE_ACCESS_KEY, LIVE_SECRET_KEY, LIVE_CLUSTER, E2E_BASE_URL)
 	cd e2e && npx playwright test -c live/playwright.config.ts
 
+.PHONY: e2e-live-write
+e2e-live-write: ## UI write tests on new uitest_* tables in a scratch namespace of a real AIStor (needs LIVE_PYTHON with pyiceberg), then clean up
+	cd e2e && npx playwright test -c live/playwright.config.ts write.spec.ts; live/cleanup.sh
+
 .PHONY: dev
 dev: ## Run test server + backend + Vite dev server (http://localhost:5173)
 	@cd backend && go build -o bin/aistor-testserver ./cmd/aistor-testserver

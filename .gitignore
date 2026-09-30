@@ -13,3 +13,4 @@ playwright-report/
 
 # local test deployments (config with generated keys)
 deploy/local/
+.venv/
