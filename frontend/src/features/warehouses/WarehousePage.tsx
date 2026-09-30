@@ -15,6 +15,7 @@ import {
   arn,
   deleteWarehouseEncryption,
   getWarehouse,
+  getWarehouseConfig,
   isSystemWarehouse,
   getWarehouseEncryption,
   getWarehouseMaintenance,
@@ -163,6 +164,7 @@ export function WarehousePage() {
                 )}
               </div>
             </Card>
+            <CatalogConfigCard cluster={cluster} wh={wh} />
           </div>
         </TabsContent>
         <TabsContent value="settings">
@@ -201,5 +203,54 @@ export function WarehousePage() {
 
       <DeleteWarehouseDialog cluster={cluster} warehouse={wh} open={deleting} onOpenChange={setDeleting} onDeleted={() => navigate(paths.warehouses(cluster), { replace: true })} />
     </div>
+  )
+}
+
+/** The Iceberg REST /config of the warehouse, as engines receive it. */
+function CatalogConfigCard({ cluster, wh }: { cluster: string; wh: string }) {
+  const q = useQuery({ queryKey: [...qk.warehouse(cluster, wh), 'config'], queryFn: () => getWarehouseConfig(cluster, wh), staleTime: 300_000 })
+  const kv = (m?: Record<string, string>) => Object.entries(m ?? {}).sort(([a], [b]) => a.localeCompare(b))
+  return (
+    <Card className="lg:col-span-2">
+      <CardHeader title="Catalog configuration" description="What Iceberg clients receive from GET /v1/config?warehouse=… : defaults, overrides and the REST endpoints this server supports." />
+      <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+        {q.isPending ? (
+          <Skeleton className="h-28 w-full lg:col-span-2" />
+        ) : q.isError ? (
+          <div className="lg:col-span-2">
+            <ErrorState error={q.error} compact />
+          </div>
+        ) : (
+          <>
+            <div className="flex flex-col gap-3">
+              {(['defaults', 'overrides'] as const).map((k) => (
+                <div key={k}>
+                  <h3 className="mb-1 text-[11.5px] font-medium uppercase tracking-wide text-subtle">{k}</h3>
+                  {kv(q.data[k]).length === 0 ? (
+                    <p className="text-[12.5px] text-subtle">None</p>
+                  ) : (
+                    <KeyValue items={kv(q.data[k]).map(([a, b]) => ({ label: a, value: <span className="break-all font-mono text-[12px]">{b}</span> }))} />
+                  )}
+                </div>
+              ))}
+            </div>
+            <div>
+              <h3 className="mb-1 text-[11.5px] font-medium uppercase tracking-wide text-subtle">Endpoints ({q.data.endpoints?.length ?? 0})</h3>
+              <ul className="grid max-h-64 gap-x-4 overflow-y-auto font-mono text-[11.5px] sm:grid-cols-2" aria-label="Supported endpoints">
+                {(q.data.endpoints ?? []).map((e) => {
+                  const [m, ...rest] = e.split(' ')
+                  return (
+                    <li key={e} className="truncate py-0.5" title={e}>
+                      <span className="inline-block w-14 text-subtle">{m}</span>
+                      {rest.join(' ').replace('/v1/{prefix}', '')}
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          </>
+        )}
+      </div>
+    </Card>
   )
 }

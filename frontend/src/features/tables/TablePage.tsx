@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useParams, useSearchParams } from 'react-router'
 import {
   ArrowUpCircle,
+  FileStack,
   BookOpenText,
   Check,
   ChevronDown,
@@ -36,7 +37,7 @@ import { EmptyState, ErrorState } from '@/components/ui/states'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip } from '@/components/ui/tooltip'
 import { TypeChip } from '@/components/ui/type-chip'
-import { getWarehouse, isSystemWarehouse, loadTable, resourceArn } from '@/lib/catalog'
+import { getWarehouse, inspectTable, isSystemWarehouse, loadTable, resourceArn } from '@/lib/catalog'
 import { ApiError } from '@/lib/api'
 import { propertiesChange } from '@/lib/commits'
 import type { Int64 } from '@/lib/json'
@@ -57,6 +58,8 @@ import { MetadataTab } from './MetadataTab'
 import { PartitionsTab } from './PartitionsTab'
 import { PreviewTab } from './PreviewTab'
 import { SchemaTree } from './SchemaTree'
+import { ColumnDetail } from './ColumnDetail'
+import { FilesTab } from './FilesTab'
 import { SettingsTab } from './SettingsTab'
 import { SnapshotsTab } from './SnapshotsTab'
 import { SemanticsTab } from '@/features/semantic/SemanticsTab'
@@ -200,6 +203,24 @@ export function TablePage() {
   const q = useQuery({ queryKey: key, queryFn: () => loadTable(cluster, wh, ns, table) })
   const maint = useMaintenanceStatus(cluster, wh, ns, table)
   const whInfo = useQuery({ queryKey: qk.warehouse(cluster, wh), queryFn: () => getWarehouse(cluster, wh), enabled: q.isError, staleTime: 300_000 })
+  // Files, partitions and column statistics of the shown snapshot (time travel aware).
+  const shownSnapshot = q.data ? resolveView(q.data.metadata, at).snapshot : undefined
+  const snapId = shownSnapshot ? String(shownSnapshot['snapshot-id']) : ''
+  const colParam = search.get('col')
+  const selectedCol = colParam != null && /^\d+$/.test(colParam) ? Number(colParam) : undefined
+  const inspect = useQuery({
+    queryKey: qk.inspect(cluster, wh, ns, table, snapId),
+    queryFn: () => inspectTable(cluster, wh, ns, table, { snapshot: snapId || undefined, files: 1000 }),
+    enabled: !!q.data && (tab === 'schema' || tab === 'files'),
+    staleTime: 5 * 60_000,
+    retry: false,
+  })
+  const selectCol = (id?: number) => {
+    const p: Record<string, string> = { tab: 'schema' }
+    if (at) p.at = at
+    if (id != null) p.col = String(id)
+    setSearch(p, { replace: true })
+  }
   const header = (
     <PageHeader
       icon={<EntityBadgeIcon kind="table" />}
@@ -335,6 +356,7 @@ export function TablePage() {
           <TabsTrigger value="preview" icon={<Rows3 />}>Preview</TabsTrigger>
           <TabsTrigger value="schema" icon={<ListTree />} count={(view.schema ?? schema).fields.length}>Schema</TabsTrigger>
           <TabsTrigger value="partitions" icon={<Layers />}>Partitioning</TabsTrigger>
+          <TabsTrigger value="files" icon={<FileStack />}>Files</TabsTrigger>
           <TabsTrigger value="snapshots" icon={<GitCommitHorizontal />} count={md.snapshots?.length ?? 0}>Snapshots</TabsTrigger>
           {semantic && <TabsTrigger value="semantics" icon={<BookOpenText />}>Semantics</TabsTrigger>}
           <TabsTrigger value="maintenance" icon={<Wrench />}>Maintenance</TabsTrigger>
@@ -356,7 +378,38 @@ export function TablePage() {
               <GitCompare /> Evolve schema
             </Button>
           </div>
-          <SchemaTree schemas={md.schemas} currentId={md['current-schema-id']} initialId={view.schema?.['schema-id']} markers={markers} />
+          <div className={cn('grid gap-4', selectedCol != null && 'xl:grid-cols-[minmax(0,1fr)_380px]')}>
+            <SchemaTree
+              schemas={md.schemas}
+              currentId={md['current-schema-id']}
+              initialId={view.schema?.['schema-id']}
+              markers={markers}
+              stats={inspect.data ? new Map(inspect.data.columns.map((c) => [c.id, c])) : undefined}
+              selectedField={selectedCol}
+              onSelectField={(id) => selectCol(id === selectedCol ? undefined : id)}
+            />
+            {selectedCol != null && (
+              <ColumnDetail
+                md={md}
+                schema={view.schema ?? schema}
+                fieldId={selectedCol}
+                cluster={cluster}
+                wh={wh}
+                stats={inspect}
+                onClose={() => selectCol(undefined)}
+                onEvolve={() => setDialog({ kind: 'schema' })}
+              />
+            )}
+          </div>
+          {inspect.isError && (
+            <p className="mt-2 text-[12px] text-subtle">
+              Column statistics are unavailable: {(inspect.error as Error).message}
+            </p>
+          )}
+        </TabsContent>
+        <TabsContent value="files">
+          {!current && <p className="mb-3 text-[12.5px] text-muted">Showing files of {view.label}.</p>}
+          <FilesTab q={inspect} location={md.location} />
         </TabsContent>
         <TabsContent value="partitions">
           <PartitionsTab md={md} schema={schema} onEvolveSpec={() => setDialog({ kind: 'spec' })} onEvolveSort={() => setDialog({ kind: 'sort' })} />

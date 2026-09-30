@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useParams } from 'react-router'
-import { ChevronRight, LoaderCircle, LockKeyhole, RefreshCw, Search, TriangleAlert } from 'lucide-react'
-import { listAllNamespaces, listAllTables, listAllViews, listAllWarehouses } from '@/lib/catalog'
+import { ChevronRight, Columns3, KeyRound, LoaderCircle, LockKeyhole, RefreshCw, Search, TriangleAlert } from 'lucide-react'
+import { listAllNamespaces, listAllTables, listAllViews, listAllWarehouses, loadTable } from '@/lib/catalog'
+import { currentSchema, typeLabel, type IcebergType, type NestedField } from '@/lib/iceberg'
+import { qk } from '@/lib/queryKeys'
 import { ApiError } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { decodeNamespaceParam, encodeNamespace, sameNamespace, type Namespace } from '@/lib/namespace'
@@ -21,25 +23,80 @@ export const treeKeys = {
 }
 
 /** Tables and views of an expanded namespace (leaf rows). */
-function LeafNodes({ cluster, wh, ns, depth }: { cluster: string; wh: string; ns: Namespace; depth: number }) {
+/** Children of a nested type that can be shown as rows (struct fields, list/map of struct). */
+function nestedFields(t: IcebergType): NestedField[] | null {
+  if (typeof t === 'string') return null
+  if (t.type === 'struct') return t.fields
+  if (t.type === 'list') return nestedFields(t.element)
+  if (t.type === 'map') return nestedFields(t.value)
+  return null
+}
+
+/** Columns of an expanded table, from the same cache as the table page. */
+function ColumnNodes({ cluster, wh, ns, table, depth, expanded, toggle }: { cluster: string; wh: string; ns: Namespace; table: string; depth: number; expanded: Set<string>; toggle: (id: string, open?: boolean) => void }) {
+  const q = useQuery({ queryKey: qk.table(cluster, wh, ns, table), queryFn: () => loadTable(cluster, wh, ns, table), staleTime: 60_000 })
+  if (q.isPending)
+    return (
+      <div className="flex h-6 items-center gap-1.5 text-[12px] text-subtle" style={{ paddingLeft: depth * INDENT + 24 }}>
+        <LoaderCircle className="size-3 animate-spin" /> Loading columns…
+      </div>
+    )
+  if (q.isError) return <div style={{ paddingLeft: depth * INDENT + 24 }}>{nodeError(q.error)}</div>
+  const schema = currentSchema(q.data.metadata)
+  const idents = new Set(schema?.['identifier-field-ids'] ?? [])
+  const base = paths.table(cluster, wh, ns, table, 'schema')
+  const render = (fields: NestedField[], d: number, prefix: string): React.ReactNode =>
+    fields.map((f) => {
+      const kids = nestedFields(f.type)
+      const id = `c:${wh}/${encodeNamespace(ns)}/${table}/${prefix}${f.id}`
+      const open = expanded.has(id)
+      return (
+        <div key={f.id}>
+          <Row
+            depth={d}
+            to={`${base}&col=${f.id}`}
+            active={false}
+            expandable={!!kids}
+            open={open}
+            onToggle={() => toggle(id)}
+            icon={idents.has(f.id) ? <KeyRound className="size-3.5 shrink-0 text-accent-text" aria-label="Row key" /> : <Columns3 className="size-3.5 shrink-0 text-subtle" aria-hidden />}
+            label={f.name}
+            trailing={typeLabel(f.type)}
+            strong={f.required}
+            dense
+          />
+          {kids && open && render(kids, d + 1, `${prefix}${f.id}.`)}
+        </div>
+      )
+    })
+  return <div role="group">{render(schema?.fields ?? [], depth, '')}</div>
+}
+
+function LeafNodes({ cluster, wh, ns, depth, expanded, toggle }: { cluster: string; wh: string; ns: Namespace; depth: number; expanded: Set<string>; toggle: (id: string, open?: boolean) => void }) {
   const params = useParams()
   const activeNs = decodeNamespaceParam(params.ns)
   const here = params.wh === wh && sameNamespace(activeNs, ns)
   const tables = useQuery({ queryKey: treeKeys.tables(cluster, wh, ns), queryFn: () => listAllTables(cluster, wh, ns), staleTime: 30_000 })
   const views = useQuery({ queryKey: treeKeys.views(cluster, wh, ns), queryFn: () => listAllViews(cluster, wh, ns), staleTime: 30_000 })
-  const row = (kind: 'table' | 'view', name: string) => (
-    <Row
-      key={`${kind}:${name}`}
-      depth={depth}
-      to={kind === 'table' ? paths.table(cluster, wh, ns, name) : paths.view(cluster, wh, ns, name)}
-      active={here && (kind === 'table' ? params.table === name : params.view === name)}
-      expandable={false}
-      open={false}
-      onToggle={() => {}}
-      icon={<EntityIcon kind={kind} />}
-      label={name}
-    />
-  )
+  const row = (kind: 'table' | 'view', name: string) => {
+    const id = `t:${wh}/${encodeNamespace(ns)}/${name}`
+    const open = kind === 'table' && expanded.has(id)
+    return (
+      <div key={`${kind}:${name}`}>
+        <Row
+          depth={depth}
+          to={kind === 'table' ? paths.table(cluster, wh, ns, name) : paths.view(cluster, wh, ns, name)}
+          active={here && (kind === 'table' ? params.table === name : params.view === name)}
+          expandable={kind === 'table'}
+          open={open}
+          onToggle={() => toggle(id)}
+          icon={<EntityIcon kind={kind} />}
+          label={name}
+        />
+        {open && <ColumnNodes cluster={cluster} wh={wh} ns={ns} table={name} depth={depth + 1} expanded={expanded} toggle={toggle} />}
+      </div>
+    )
+  }
   return (
     <>
       {tables.isError && <div style={{ paddingLeft: depth * INDENT + 24 }}>{nodeError(tables.error)}</div>}
@@ -86,6 +143,9 @@ function Row({
   icon,
   label,
   loading,
+  trailing,
+  strong,
+  dense,
 }: {
   depth: number
   to: string
@@ -96,6 +156,10 @@ function Row({
   icon: React.ReactNode
   label: string
   loading?: boolean
+  /** secondary text on the right (e.g. a column type) */
+  trailing?: string
+  strong?: boolean
+  dense?: boolean
 }) {
   return (
     <div
@@ -103,7 +167,8 @@ function Row({
       aria-expanded={expandable ? open : undefined}
       aria-selected={active}
       className={cn(
-        'group relative flex h-7 items-center rounded-[5px] pr-1 text-[13px]',
+        'group relative flex items-center rounded-[5px] pr-1',
+        dense ? 'h-6 text-[12px]' : 'h-7 text-[13px]',
         active ? 'bg-accent-subtle text-accent-text' : 'text-fg hover:bg-surface',
       )}
       style={{ paddingLeft: depth * INDENT + 2 }}
@@ -133,7 +198,8 @@ function Row({
         }}
       >
         {icon}
-        <span className="truncate">{label}</span>
+        <span className={cn('truncate', dense && 'font-mono', strong && 'font-semibold')}>{label}</span>
+        {trailing && <span className="ml-auto max-w-[45%] shrink-0 truncate pl-2 font-mono text-[11px] text-subtle">{trailing}</span>}
       </Link>
     </div>
   )
@@ -196,7 +262,7 @@ function NamespaceNodes({
             {open && (
               <>
                 <NamespaceNodes cluster={cluster} wh={wh} parent={ns} depth={depth + 1} expanded={expanded} toggle={toggle} activeWh={activeWh} activeNs={activeNs} />
-                <LeafNodes cluster={cluster} wh={wh} ns={ns} depth={depth + 1} />
+                <LeafNodes cluster={cluster} wh={wh} ns={ns} depth={depth + 1} expanded={expanded} toggle={toggle} />
               </>
             )}
           </div>

@@ -5,6 +5,7 @@ import { CreateViewDialog, RegisterDialog } from '@/features/views/ViewEditors'
 import { Ellipsis, Eye, Pencil, Plus, Search, Table2, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DataTable, Pagination, type Column } from '@/components/ui/data-table'
+import { InlineColumns } from './InlineColumns'
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from '@/components/ui/dropdown'
 import { EntityIcon } from '@/components/ui/entity-icon'
 import { Input } from '@/components/ui/input'
@@ -89,6 +90,7 @@ export function TablesList({ cluster, wh, ns }: { cluster: string; wh: string; n
             sort={list.sort}
             onSort={list.setSort}
             onRowClick={(r) => navigate(paths.table(cluster, wh, ns, r.id.name))}
+            expandable={{ label: (r) => `columns of ${r.id.name}`, render: (r) => <InlineColumns cluster={cluster} wh={wh} ns={ns} table={r.id.name} /> }}
             rowActions={(r) => (
               <RowMenu
                 name={r.id.name}

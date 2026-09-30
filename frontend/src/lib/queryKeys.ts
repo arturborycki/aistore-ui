@@ -10,5 +10,6 @@ export const qk = {
   views: (c: string, wh: string, ns: Namespace) => ['cluster', c, 'warehouse', wh, 'namespace', ns.join('\u001f'), 'views'] as const,
   table: (c: string, wh: string, ns: Namespace, t: string) => ['cluster', c, 'warehouse', wh, 'namespace', ns.join('\u001f'), 'table', t] as const,
   view: (c: string, wh: string, ns: Namespace, v: string) => ['cluster', c, 'warehouse', wh, 'namespace', ns.join('\u001f'), 'view', v] as const,
+  inspect: (c: string, wh: string, ns: Namespace, t: string, snapshot: string) => ['cluster', c, 'warehouse', wh, 'namespace', ns.join('\u001f'), 'table', t, 'inspect', snapshot] as const,
   activity: (scope: string) => ['activity', scope] as const,
 }

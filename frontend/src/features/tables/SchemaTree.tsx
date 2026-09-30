@@ -7,6 +7,8 @@ import { Tooltip } from '@/components/ui/tooltip'
 import { TypeChip } from '@/components/ui/type-chip'
 import { cn } from '@/lib/cn'
 import { diffSchemas, flattenSchema, typeLabel, type FieldChange, type FlatField, type Schema } from '@/lib/iceberg'
+import type { InspectColumn } from '@/lib/catalog'
+import { formatCompact } from '@/lib/format'
 
 export interface FieldMarkers {
   identifier?: Set<number>
@@ -53,7 +55,25 @@ function describe(c: FieldChange): string {
  * Fields are identified by id, so renames are tracked across versions.
  */
 /** `initialId` selects a schema other than the current one (time travel). */
-export function SchemaTree({ schemas, currentId, initialId, markers }: { schemas: Schema[]; currentId: number; initialId?: number; markers?: FieldMarkers }) {
+export function SchemaTree({
+  schemas,
+  currentId,
+  initialId,
+  markers,
+  stats,
+  selectedField,
+  onSelectField,
+}: {
+  schemas: Schema[]
+  currentId: number
+  initialId?: number
+  markers?: FieldMarkers
+  /** per-column statistics of the shown snapshot, by field id */
+  stats?: Map<number, InspectColumn>
+  selectedField?: number
+  onSelectField?: (id: number) => void
+}) {
+  const withStats = !!stats && stats.size > 0
   const ordered = useMemo(() => [...schemas].sort((a, b) => a['schema-id'] - b['schema-id']), [schemas])
   const shown = initialId ?? currentId
   const [selectedId, setSelectedId] = useState(shown)
@@ -160,6 +180,13 @@ export function SchemaTree({ schemas, currentId, initialId, markers }: { schemas
               <th className="px-3">Type</th>
               <th className="px-3">Nullability</th>
               <th className="px-3">Description</th>
+              {withStats && (
+                <>
+                  <th className="px-3 text-right">Nulls</th>
+                  <th className="px-3">Min</th>
+                  <th className="px-3">Max</th>
+                </>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -167,7 +194,11 @@ export function SchemaTree({ schemas, currentId, initialId, markers }: { schemas
               const open = !collapsed.has(x.id)
               const change = changedIds.get(x.id)
               return (
-                <tr key={x.path.join('.')} className={cn('border-b border-border last:border-0 hover:bg-bg-subtle', change?.kind === 'added' && 'bg-success-subtle/50')}>
+                <tr
+                  key={x.path.join('.')}
+                  aria-selected={selectedField === x.id}
+                  className={cn('border-b border-border last:border-0 hover:bg-bg-subtle', change?.kind === 'added' && 'bg-success-subtle/50', selectedField === x.id && 'bg-accent-subtle/60')}
+                >
                   <td className="h-8 px-3 text-right font-mono text-[11.5px] text-subtle tabular">{x.id}</td>
                   <td className="px-3">
                     <div className="flex items-center gap-1" style={{ paddingLeft: f ? 0 : x.depth * 18 }}>
@@ -191,7 +222,18 @@ export function SchemaTree({ schemas, currentId, initialId, markers }: { schemas
                       ) : (
                         <span className="inline-block w-[18px]" />
                       )}
-                      <span className={cn('font-mono text-[12.5px]', x.role ? 'italic text-muted' : 'font-medium')}>{f ? x.path.join('.') : x.name}</span>
+                      {onSelectField ? (
+                        <button
+                          type="button"
+                          onClick={() => onSelectField(x.id)}
+                          aria-label={`Details of ${x.path.join('.')}`}
+                          className={cn('rounded font-mono text-[12.5px] hover:text-accent-text hover:underline', x.role ? 'italic text-muted' : 'font-medium')}
+                        >
+                          {f ? x.path.join('.') : x.name}
+                        </button>
+                      ) : (
+                        <span className={cn('font-mono text-[12.5px]', x.role ? 'italic text-muted' : 'font-medium')}>{f ? x.path.join('.') : x.name}</span>
+                      )}
                       {identifier.has(x.id) && (
                         <Tooltip content="Identifier field (row key)">
                           <KeyRound className="size-3.5 text-warning" aria-label="Identifier field" />
@@ -217,12 +259,13 @@ export function SchemaTree({ schemas, currentId, initialId, markers }: { schemas
                   <td className="max-w-[360px] truncate px-3 text-[12.5px] text-muted" title={x.doc}>
                     {x.doc ?? ''}
                   </td>
+                  {withStats && <StatCells col={stats!.get(x.id)} />}
                 </tr>
               )
             })}
             {visible.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-3 py-6 text-center text-[12.5px] text-subtle">
+                <td colSpan={withStats ? 8 : 5} className="px-3 py-6 text-center text-[12.5px] text-subtle">
                   No columns match “{filter}”.
                 </td>
               </tr>
@@ -231,5 +274,31 @@ export function SchemaTree({ schemas, currentId, initialId, markers }: { schemas
         </table>
       </div>
     </div>
+  )
+}
+
+function StatCells({ col }: { col?: InspectColumn }) {
+  if (!col || col.filesWithStats === 0) {
+    return (
+      <>
+        <td className="px-3 text-right text-[12px] text-subtle">—</td>
+        <td className="px-3 text-[12px] text-subtle">—</td>
+        <td className="px-3 text-[12px] text-subtle">—</td>
+      </>
+    )
+  }
+  const nullPct = col.valueCount ? ((col.nullCount ?? 0) / col.valueCount) * 100 : 0
+  return (
+    <>
+      <td className="px-3 text-right font-mono text-[12px] tabular" title={`${col.nullCount ?? 0} of ${col.valueCount ?? 0}`}>
+        {col.nullCount == null ? '—' : col.nullCount === 0 ? '0' : `${formatCompact(col.nullCount)} (${nullPct < 0.1 ? '<0.1' : nullPct.toFixed(nullPct < 10 ? 1 : 0)}%)`}
+      </td>
+      <td className="max-w-[180px] truncate px-3 font-mono text-[12px]" title={col.lower}>
+        {col.lower ?? '—'}
+      </td>
+      <td className="max-w-[180px] truncate px-3 font-mono text-[12px]" title={col.upper}>
+        {col.upper ?? '—'}
+      </td>
+    </>
   )
 }

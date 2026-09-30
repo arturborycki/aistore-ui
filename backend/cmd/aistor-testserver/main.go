@@ -43,6 +43,11 @@ func main() {
 	// A versioned bucket for Apache Ossie semantic models (alice writes, bob reads).
 	f.Objects = aistortest.NewObjectStore()
 	f.Objects.CreateBucket("aistor-semantics", true)
+	// Avro manifests for every seeded snapshot, so file and column-statistics views work.
+	if err := cat.WriteManifests(f.Objects); err != nil {
+		fmt.Fprintln(os.Stderr, "manifests:", err)
+		os.Exit(1)
+	}
 	f.Server.Close()
 	srv := &http.Server{Addr: *addr, Handler: f.Server.Config.Handler}
 	go func() {

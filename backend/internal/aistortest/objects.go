@@ -321,3 +321,15 @@ func (s *ObjectStore) listVersions(w http.ResponseWriter, b *bucket, q map[strin
 	w.Header().Set("Content-Type", "application/xml")
 	_ = xml.NewEncoder(w).Encode(res)
 }
+
+// Object returns the latest version of an object (test helper).
+func (s *ObjectStore) Object(bucketName, key string) ([]byte, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	b := s.buckets[bucketName]
+	if b == nil || len(b.objects[key]) == 0 {
+		return nil, false
+	}
+	v := b.objects[key][len(b.objects[key])-1]
+	return v.body, !v.marker
+}

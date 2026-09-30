@@ -411,3 +411,101 @@ export interface SearchResult {
 export async function searchCatalog(cluster: string, q: string, signal?: AbortSignal) {
   return (await api.get<SearchResult>(`/api/c/${encodeURIComponent(cluster)}/search`, { query: { q, limit: 50 }, signal })).data
 }
+
+// ---------------------------------------------------------------- files & statistics
+
+export interface InspectColumn {
+  id: number
+  path: string
+  type: string
+  valueCount?: number
+  nullCount?: number
+  nanCount?: number
+  lower?: string
+  upper?: string
+  size?: number
+  filesWithStats: number
+  boundsTruncated?: boolean
+}
+
+export interface InspectFile {
+  path: string
+  content: 'data' | 'position-deletes' | 'equality-deletes'
+  format: string
+  specId: number
+  partition?: { name: string; value: string }[]
+  records: number
+  size: number
+  status: 'added' | 'existing'
+  sequenceNumber?: number
+}
+
+export interface InspectManifest {
+  path: string
+  content: 'data' | 'deletes'
+  specId: number
+  length: number
+  addedSnapshotId?: string
+  addedFiles: number
+  existingFiles: number
+  deletedFiles: number
+  addedRows: number
+  existingRows: number
+  deletedRows: number
+  sequenceNumber: number
+}
+
+export interface InspectPartition {
+  specId: number
+  values: { name: string; value: string }[]
+  records: number
+  files: number
+  size: number
+  deleteFiles: number
+}
+
+export interface InspectResult {
+  snapshotId: string
+  manifestList: string
+  summary: {
+    manifests: number
+    dataManifests: number
+    deleteManifests: number
+    dataFiles: number
+    positionDeleteFiles: number
+    equalityDeleteFiles: number
+    records: number
+    deleteFileRecords: number
+    dataSize: number
+    deleteSize: number
+    entriesScanned: number
+    manifestsScanned: number
+    filesWithoutStats: number
+  }
+  manifests: InspectManifest[]
+  files: InspectFile[]
+  partitions: InspectPartition[]
+  columns: InspectColumn[]
+  truncated: boolean
+  filesTruncated: boolean
+}
+
+/**
+ * Manifests, files, partitions and per-column statistics of a snapshot
+ * (default: current), read by the server from the table's manifest files
+ * with the caller's own credentials.
+ */
+export async function inspectTable(cluster: string, wh: string, ns: Namespace, table: string, opts: { snapshot?: string; files?: number } = {}) {
+  return (await api.get<InspectResult>(`${t(cluster, wh, ns, table)}/inspect`, { query: { snapshot: opts.snapshot, files: opts.files } })).data
+}
+
+export interface CatalogConfig {
+  defaults?: Record<string, string>
+  overrides?: Record<string, string>
+  endpoints?: string[]
+}
+
+/** The Iceberg REST /config for a warehouse: client defaults, overrides and served endpoints. */
+export async function getWarehouseConfig(cluster: string, wh: string) {
+  return (await api.get<CatalogConfig>(`${w(cluster, wh)}/config`)).data
+}

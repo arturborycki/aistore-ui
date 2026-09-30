@@ -14,6 +14,7 @@ import { CommandPalette, useCommandPalette } from './CommandPalette'
 import { ExplorerTree } from './ExplorerTree'
 import { paths } from './paths'
 import { useTheme, type ThemePref } from './theme'
+import { ThemeToggle } from './ThemeToggle'
 import { useCluster } from './useCluster'
 
 const MIN_W = 220
@@ -251,6 +252,7 @@ export function AppShell() {
           <div className="min-w-0 flex-1 overflow-hidden">
             <Breadcrumbs cluster={cluster} />
           </div>
+          <ThemeToggle />
           <button
             onClick={() => palette.setOpen(true)}
             aria-label="Search catalog"

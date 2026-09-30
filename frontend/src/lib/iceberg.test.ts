@@ -103,3 +103,19 @@ describe('time travel', () => {
     for (const at of ['', 'ref:main', 'snap:20', 'snap:99', 'ref:nope', 'garbage']) expect(resolveView(md, at).kind).toBe('current')
   })
 })
+
+describe('field history', () => {
+  it('tracks a field by id through renames, widening, nullability and drops', async () => {
+    const { fieldHistory } = await import('./iceberg')
+    const s = (id: number, fields: unknown[]) => ({ type: 'struct', 'schema-id': id, fields }) as Schema
+    const h = fieldHistory(
+      [
+        s(0, [{ id: 1, name: 'amt', type: 'int', required: true }]),
+        s(1, [{ id: 1, name: 'amount', type: 'long', required: false, doc: 'Total' }]),
+        s(2, []),
+      ],
+      1,
+    )
+    expect(h.map((e) => `${e.schemaId}:${e.kind}`)).toEqual(['0:added', '1:renamed', '1:type', '1:nullability', '1:doc', '2:dropped'])
+  })
+})

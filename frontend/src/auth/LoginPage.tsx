@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Navigate, useSearchParams, useNavigate } from 'react-router'
 import { CircleAlert, KeyRound, LogIn, ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { ThemeToggle } from '@/layout/ThemeToggle'
 import { Field, Input } from '@/components/ui/input'
 import { InlineError } from '@/components/ui/states'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -70,6 +71,9 @@ export function LoginPage() {
   return (
     <div className="relative flex min-h-screen items-center justify-center bg-bg-subtle px-4">
       <div className="pointer-events-none absolute inset-0 [background-image:radial-gradient(var(--border)_1px,transparent_1px)] [background-size:20px_20px] opacity-60" />
+      <div className="absolute right-3 top-3">
+        <ThemeToggle />
+      </div>
       <div className="relative w-full max-w-[380px]">
         <div className="mb-6 flex flex-col items-center gap-3 text-center">
           <BrandMark className="size-10" />

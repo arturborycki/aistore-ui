@@ -21,7 +21,7 @@ Based on a review of data-catalog UIs (Databricks Catalog Explorer, Snowflake Ho
 - **Density.** 36 px table rows, 28 px tree rows, 32 px controls, on a 4 px spacing scale.
 - **Neutrals (zinc).**
   - Light: bg `#FFFFFF`, subtle `#FAFAFA`, surface `#F4F4F5`, border `#E4E4E7`, text `#18181B`, muted `#52525B`, subtle `#686871`.
-  - Dark: bg `#09090B`, sidebar `#0F0F11`, surface `#18181B`, border `#27272A`, text `#FAFAFA`, muted `#A1A1AA`, subtle `#8B8B94`.
+  - Dark: bg `#09090B`, sidebar `#0F0F11`, surface `#18181B`, border `#27272A`, text `#FAFAFA`, muted `#A1A1AA`, subtle `#8B8B94`, accent `#2563EB` (primary buttons keep white text at 5.2:1 in both themes).
   - Every text token meets WCAG 2.1 AA (4.5:1) on every background token it is used on; the e2e suite enforces this with axe.
   - The sidebar is slightly dimmer than the content area.
 - **Accent.** Blue `#2563EB` in light mode, `#3B82F6` in dark. MinIO crimson `#C72C48` is used only in the logo, so it never reads as danger.

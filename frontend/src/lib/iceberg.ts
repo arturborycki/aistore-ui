@@ -348,3 +348,37 @@ export function shortId(id: Int64 | number | undefined | null): string {
 export function currentViewVersion(md: ViewMetadata): ViewVersion | undefined {
   return md.versions.find((v) => v['version-id'] === md['current-version-id'])
 }
+
+export interface FieldEvent {
+  schemaId: number
+  kind: 'added' | 'renamed' | 'type' | 'nullability' | 'doc' | 'dropped' | 'restored'
+  detail: string
+}
+
+/** History of one field id across schema versions (oldest first). */
+export function fieldHistory(schemas: Schema[], id: number): FieldEvent[] {
+  const ordered = [...schemas].sort((a, b) => a['schema-id'] - b['schema-id'])
+  const out: FieldEvent[] = []
+  let prev: FlatField | undefined
+  let seen = false
+  for (const s of ordered) {
+    const f = flattenSchema(s).find((x) => x.id === id)
+    const sid = s['schema-id']
+    if (!f) {
+      if (prev) out.push({ schemaId: sid, kind: 'dropped', detail: `dropped ${prev.path.join('.')}` })
+      prev = undefined
+      continue
+    }
+    if (!prev) {
+      out.push({ schemaId: sid, kind: seen ? 'restored' : 'added', detail: `${f.path.join('.')} ${typeLabel(f.type)}${f.required ? ' required' : ''}` })
+    } else {
+      if (prev.path.join('.') !== f.path.join('.')) out.push({ schemaId: sid, kind: 'renamed', detail: `${prev.path.join('.')} → ${f.path.join('.')}` })
+      if (typeSignature(prev.type) !== typeSignature(f.type)) out.push({ schemaId: sid, kind: 'type', detail: `${typeLabel(prev.type)} → ${typeLabel(f.type)}` })
+      if (prev.required !== f.required) out.push({ schemaId: sid, kind: 'nullability', detail: f.required ? 'made required' : 'made optional' })
+      if ((prev.doc ?? '') !== (f.doc ?? '')) out.push({ schemaId: sid, kind: 'doc', detail: f.doc ? 'description changed' : 'description removed' })
+    }
+    seen = true
+    prev = f
+  }
+  return out
+}

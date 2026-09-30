@@ -230,7 +230,9 @@ func (c *Catalog) Handle(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, 200, map[string]any{"warehouses": len(c.warehouses), "namespaces": total.Namespaces, "tables": total.Tables, "records": total.Records, "size": total.Size})
 	case len(segs) == 1 && segs[0] == "config":
-		writeJSON(w, 200, map[string]any{"defaults": map[string]string{"s3.delete-enabled": "false"}, "overrides": map[string]string{"prefix": q.Get("warehouse")}})
+		writeJSON(w, 200, map[string]any{"defaults": map[string]string{"prefix": q.Get("warehouse")}, "overrides": map[string]string{"s3.delete-enabled": "false", "s3.path-style-access": "true"},
+			"endpoints": []string{"GET /v1/{prefix}/namespaces", "POST /v1/{prefix}/namespaces", "GET /v1/{prefix}/namespaces/{namespace}/tables", "POST /v1/{prefix}/namespaces/{namespace}/tables",
+				"GET /v1/{prefix}/namespaces/{namespace}/tables/{table}", "POST /v1/{prefix}/namespaces/{namespace}/tables/{table}", "POST /v1/{prefix}/transactions/commit"}})
 	case len(segs) == 1 && segs[0] == "warehouses" && r.Method == "GET":
 		names := make([]string, 0, len(c.warehouses))
 		for n := range c.warehouses {

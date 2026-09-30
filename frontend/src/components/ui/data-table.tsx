@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { Fragment, useState, type ReactNode } from 'react'
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { Button } from './button'
@@ -30,6 +30,7 @@ export function DataTable<T>({
   onRowClick,
   empty,
   rowActions,
+  expandable,
 }: {
   columns: Column<T>[]
   rows: T[]
@@ -40,7 +41,11 @@ export function DataTable<T>({
   onRowClick?: (row: T) => void
   empty?: ReactNode
   rowActions?: (row: T) => ReactNode
+  /** content shown under a row when it is expanded (adds a toggle column) */
+  expandable?: { label: (row: T) => string; render: (row: T) => ReactNode }
 }) {
+  const [open, setOpen] = useState<Set<string>>(new Set())
+  const span = columns.length + (rowActions ? 1 : 0)
   return (
     <div className="overflow-x-auto rounded-[var(--radius-card)] border border-border">
       <table className="w-full border-collapse text-[13px]">
@@ -94,15 +99,41 @@ export function DataTable<T>({
               </tr>
             ))}
           {!loading &&
-            rows.map((r) => (
+            rows.map((r) => {
+              const k = rowKey(r)
+              const isOpen = open.has(k)
+              return (
+              <Fragment key={k}>
               <tr
-                key={rowKey(r)}
                 onClick={onRowClick ? () => onRowClick(r) : undefined}
-                className={cn('group border-b border-border last:border-0 hover:bg-bg-subtle', onRowClick && 'cursor-pointer')}
+                className={cn('group border-b border-border last:border-0 hover:bg-bg-subtle', onRowClick && 'cursor-pointer', isOpen && 'border-b-0 bg-bg-subtle')}
               >
-                {columns.map((c) => (
+                {columns.map((c, ci) => (
                   <td key={c.key} className={cn('h-9 px-3', c.align === 'right' && 'text-right tabular', c.className)}>
-                    {c.cell(r)}
+                    {expandable && ci === 0 ? (
+                      <span className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          aria-expanded={isOpen}
+                          aria-label={`${isOpen ? 'Hide' : 'Show'} ${expandable.label(r)}`}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setOpen((s) => {
+                              const n = new Set(s)
+                              if (n.has(k)) n.delete(k)
+                              else n.add(k)
+                              return n
+                            })
+                          }}
+                          className="-ml-1.5 rounded p-0.5 text-subtle hover:bg-surface hover:text-fg"
+                        >
+                          <ChevronRight className={cn('size-3.5 transition-transform', isOpen && 'rotate-90')} />
+                        </button>
+                        {c.cell(r)}
+                      </span>
+                    ) : (
+                      c.cell(r)
+                    )}
                   </td>
                 ))}
                 {rowActions && (
@@ -111,7 +142,16 @@ export function DataTable<T>({
                   </td>
                 )}
               </tr>
-            ))}
+              {expandable && isOpen && (
+                <tr className="border-b border-border bg-bg-subtle last:border-0">
+                  <td colSpan={span} className="px-3 pb-3 pt-1">
+                    {expandable.render(r)}
+                  </td>
+                </tr>
+              )}
+              </Fragment>
+              )
+            })}
         </tbody>
       </table>
       {!loading && rows.length === 0 && empty}

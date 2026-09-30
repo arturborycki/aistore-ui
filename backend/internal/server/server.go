@@ -24,6 +24,7 @@ import (
 	"github.com/arturborycki/aistore-ui/backend/internal/auth"
 	"github.com/arturborycki/aistore-ui/backend/internal/catalog"
 	"github.com/arturborycki/aistore-ui/backend/internal/config"
+	"github.com/arturborycki/aistore-ui/backend/internal/inspect"
 	"github.com/arturborycki/aistore-ui/backend/internal/semantic"
 	"github.com/arturborycki/aistore-ui/backend/internal/session"
 )
@@ -140,6 +141,7 @@ func (s *Server) Handler() http.Handler {
 				PreviewMaxRows:  s.cfg.Limits.PreviewMaxRows,
 				Log:             s.log,
 				Extra: func(r chi.Router, d *catalog.Deps) {
+					inspect.NewAPI(d).Mount(r)
 					if s.cfg.Semantic.Enabled {
 						semantic.NewAPI(s.cfg.Semantic, d, s.editorName).Mount(r)
 					}
