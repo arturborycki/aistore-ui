@@ -1,0 +1,5 @@
+10109	IGNORE	(Modern Web Application: informational, the UI is a single-page app by design)
+10027	IGNORE	(Suspicious Comments: false positive on regex literals in minified third-party JS; the build strips comments)
+10049	IGNORE	(Non-Storable Content: informational; API responses are no-store on purpose)
+10094	IGNORE	(Base64 Disclosure: false positive on content-hashed asset names and opaque IDs)
+90005	IGNORE	(Sec-Fetch-Dest Header is Missing: flags the scanner's own requests, not a server response)

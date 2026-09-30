@@ -1,0 +1,28 @@
+# Base manifests for the AIStor Catalog UI.
+#   1. Create the secret (see secret.example.yaml) and adjust configmap.yaml.
+#   2. kubectl apply -k deploy/kubernetes
+# Requires a Redis reachable at the URL in the config (sessions are shared by replicas).
+# No Redis yet? Add the bundled one:
+#   components: [components/redis]
+# and set session.store in configmap.yaml to
+#   "redis://:${REDIS_PASSWORD}@aistor-catalog-ui-redis:6379/0"
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: aistor-catalog
+labels:
+  - pairs:
+      app.kubernetes.io/name: aistor-catalog-ui
+      app.kubernetes.io/part-of: aistor
+    includeSelectors: true
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - deployment.yaml
+  - service.yaml
+  - pdb.yaml
+  - networkpolicy.yaml
+  - ingress.yaml
+images:
+  - name: aistor-catalog-ui
+    newName: ghcr.io/arturborycki/aistore-ui
+    newTag: latest

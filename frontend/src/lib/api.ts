@@ -1,0 +1,189 @@
+import { parseJSON, stringifyJSON } from './json'
+
+/**
+ * HTTP client for the backend-for-frontend.
+ *
+ * - The session lives in an HttpOnly cookie; JavaScript never sees credentials.
+ * - Every state-changing request carries the per-session CSRF token.
+ * - Errors are normalised to ApiError (Iceberg ErrorModel shape) and carry the
+ *   s3tables action / resource ARN the server reported, so "no access" states
+ *   can tell the user exactly what permission is missing.
+ * - A StepUpRequired response triggers the registered re-authentication flow
+ *   and, on success, the request is retried once. CredentialsExpired (the
+ *   short-lived AIStor credentials of a password session ran out) does the
+ *   same with a "sign in again" prompt instead of ending the session.
+ */
+
+export class ApiError extends Error {
+  readonly status: number
+  readonly type: string
+  readonly action?: string
+  readonly resource?: string
+  readonly operation?: string
+  readonly requestId?: string
+  /** the parsed error response (e.g. validation problems) */
+  readonly body?: Record<string, unknown>
+
+  constructor(init: { status: number; type: string; message: string; headers?: Headers; body?: Record<string, unknown> }) {
+    super(init.message)
+    this.name = 'ApiError'
+    this.status = init.status
+    this.type = init.type
+    this.action = init.headers?.get('X-Aistor-Action') ?? undefined
+    this.resource = init.headers?.get('X-Aistor-Resource') ?? undefined
+    this.operation = init.headers?.get('X-Aistor-Operation') ?? undefined
+    this.requestId = init.headers?.get('X-Request-Id') ?? undefined
+    this.body = init.body
+  }
+
+  get isAccessDenied() {
+    return this.status === 403 && this.type !== 'StepUpRequired' && this.type !== 'CSRFRejected'
+  }
+  get isNotFound() {
+    return this.status === 404
+  }
+  get isConflict() {
+    return this.status === 409
+  }
+  get isSessionExpired() {
+    return this.status === 401 && this.type !== 'CredentialsExpired'
+  }
+}
+
+let csrfToken = ''
+export function setCsrfToken(token: string) {
+  csrfToken = token
+}
+
+export type ReauthReason = 'step-up' | 'credentials'
+type StepUpHandler = (reason: ReauthReason) => Promise<boolean>
+let stepUpHandler: StepUpHandler | null = null
+export function registerStepUpHandler(h: StepUpHandler | null) {
+  stepUpHandler = h
+}
+
+// Concurrent requests failing for the same reason share one prompt.
+let pendingReauth: Promise<boolean> | null = null
+export function reauthenticate(reason: ReauthReason): Promise<boolean> {
+  if (!stepUpHandler) return Promise.resolve(false)
+  if (!pendingReauth) {
+    pendingReauth = stepUpHandler(reason).finally(() => {
+      pendingReauth = null
+    })
+  }
+  return pendingReauth
+}
+
+let lastActivity = Date.now()
+/** Time of the last request that counted as user activity (extends the idle timeout). */
+export function lastActivityAt() {
+  return lastActivity
+}
+
+type Listener = () => void
+const expiredListeners = new Set<Listener>()
+export function onSessionExpired(l: Listener) {
+  expiredListeners.add(l)
+  return () => {
+    expiredListeners.delete(l)
+  }
+}
+
+export type Query = Record<string, string | number | boolean | undefined | null | string[]>
+
+export function buildQuery(q?: Query): string {
+  if (!q) return ''
+  const p = new URLSearchParams()
+  for (const [k, v] of Object.entries(q)) {
+    if (v === undefined || v === null || v === '') continue
+    if (Array.isArray(v)) v.forEach((x) => p.append(k, x))
+    else p.set(k, String(v))
+  }
+  const s = p.toString()
+  return s ? `?${s}` : ''
+}
+
+export interface ApiResponse<T> {
+  data: T
+  headers: Headers
+  status: number
+}
+
+export interface RequestOptions {
+  query?: Query
+  body?: unknown
+  signal?: AbortSignal
+  /** a poll that must not keep an idle session alive */
+  background?: boolean
+  /** extra request headers (e.g. If-Match) */
+  headers?: Record<string, string>
+  /** return the response body as text instead of parsing JSON */
+  text?: boolean
+  /** internal: set on the retry after step-up */
+  _retried?: boolean
+}
+
+const SAFE = new Set(['GET', 'HEAD'])
+
+export async function request<T>(method: string, path: string, opts: RequestOptions = {}): Promise<ApiResponse<T>> {
+  const headers: Record<string, string> = { Accept: opts.text ? '*/*' : 'application/json' }
+  if (opts.body !== undefined) headers['Content-Type'] = 'application/json'
+  if (!SAFE.has(method) && csrfToken) headers['X-CSRF-Token'] = csrfToken
+  if (opts.background) headers['X-Aistor-Background'] = '1'
+  else lastActivity = Date.now()
+  Object.assign(headers, opts.headers)
+
+  let resp: Response
+  try {
+    resp = await fetch(path + buildQuery(opts.query), {
+      method,
+      headers,
+      body: opts.body === undefined ? undefined : stringifyJSON(opts.body),
+      credentials: 'same-origin',
+      cache: 'no-store',
+      redirect: 'error',
+      signal: opts.signal,
+    })
+  } catch (e) {
+    if ((e as Error).name === 'AbortError') throw e
+    throw new ApiError({ status: 0, type: 'NetworkError', message: 'The server could not be reached. Check your connection.' })
+  }
+
+  if (resp.ok) {
+    const text = resp.status === 204 ? '' : await resp.text()
+    if (opts.text) return { data: text as T, headers: resp.headers, status: resp.status }
+    return { data: (text ? parseJSON<T>(text) : undefined) as T, headers: resp.headers, status: resp.status }
+  }
+
+  let type = 'HttpError'
+  let message = resp.statusText || `Request failed (${resp.status})`
+  let body: Record<string, unknown> | undefined
+  try {
+    body = await resp.json()
+    const e = body?.error as { type?: string; message?: string } | undefined
+    if (e && typeof e === 'object') {
+      type = e.type || type
+      message = e.message || message
+    }
+  } catch {
+    /* non-JSON error body */
+  }
+  const err = new ApiError({ status: resp.status, type, message, headers: resp.headers, body })
+
+  if ((err.type === 'StepUpRequired' || err.type === 'CredentialsExpired') && !opts._retried && !opts.background) {
+    const ok = await reauthenticate(err.type === 'StepUpRequired' ? 'step-up' : 'credentials')
+    if (ok) return request<T>(method, path, { ...opts, _retried: true })
+  }
+  if (err.isSessionExpired && !path.startsWith('/auth/')) {
+    expiredListeners.forEach((l) => l())
+  }
+  throw err
+}
+
+export const api = {
+  request: <T>(method: string, path: string, opts?: RequestOptions) => request<T>(method, path, opts),
+  get: <T>(path: string, opts?: RequestOptions) => request<T>('GET', path, opts),
+  post: <T>(path: string, body?: unknown, opts?: RequestOptions) => request<T>('POST', path, { ...opts, body }),
+  put: <T>(path: string, body?: unknown, opts?: RequestOptions) => request<T>('PUT', path, { ...opts, body }),
+  del: <T>(path: string, opts?: RequestOptions) => request<T>('DELETE', path, opts),
+}

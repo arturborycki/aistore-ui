@@ -1,0 +1,24 @@
+# Local development against the in-memory AIStor test server (make dev).
+server:
+  listen: ":8080"
+  metricsListen: ":9090"
+  publicUrl: "http://localhost:8080"
+  extraOrigins: ["http://localhost:5173"]
+session:
+  store: memory
+  keys:
+    - id: dev
+      value: "dev-only-session-key-change-me-0123456789abcdef"
+auth:
+  ldap: { enabled: true, displayName: "Directory" }
+  builtin: { enabled: true }
+  adminUsers: [alice]
+clusters:
+  - id: local
+    name: Local AIStor
+    endpoint: "http://127.0.0.1:9000"
+limits:
+  loginPerMinute: 120
+semantic:
+  enabled: true
+  bucket: aistor-semantics

@@ -1,0 +1,44 @@
+# AIStor Catalog UI configuration for the compose stack.
+# ${VAR} references are expanded from the container environment.
+server:
+  listen: ":8080"
+  metricsListen: ":9090"
+  publicUrl: "http://localhost:8080"
+
+session:
+  store: "redis://:${REDIS_PASSWORD}@redis:6379/0"
+  keys:
+    - id: k1
+      value: "${AISTOR_UI_SESSION_KEY}"
+  idleTimeout: 30m
+  absoluteTimeout: 12h
+  stepUpValidFor: 5m
+
+auth:
+  oidc:
+    enabled: true
+    displayName: "Keycloak"
+    issuer: "http://keycloak.localhost:8081/realms/aistor"
+    clientId: aistor-ui
+    clientSecret: "${AISTOR_UI_OIDC_CLIENT_SECRET}"
+    scopes: [openid, profile, email]
+    groupsClaim: groups
+    endSessionRedirect: true
+  adminGroups: [catalog-admin]
+
+clusters:
+  - id: local
+    name: "Local AIStor"
+    endpoint: "http://aistor:9000"
+    region: us-east-1
+    stsDuration: 1h
+
+# Apache Ossie semantic models, stored in a versioned bucket and read/written
+# with each user's own credentials (see policies/). serving exposes them
+# read-only to tools and agents at /ossie/v1 and /ossie/mcp with Keycloak
+# bearer tokens (audience aistor-ui).
+semantic:
+  enabled: true
+  bucket: aistor-semantics
+  serving:
+    enabled: true

@@ -1,0 +1,8 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: aistor-catalog-ui
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app.kubernetes.io/component: ui }

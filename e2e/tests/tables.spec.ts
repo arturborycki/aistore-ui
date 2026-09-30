@@ -1,0 +1,130 @@
+import { expect, test } from '@playwright/test'
+import { login, shot, watchConsole } from './helpers'
+
+const NS = '/c/local/wh/analytics/ns/sales%1Forders'
+
+test('table page: every tab renders and no credentials reach the browser', async ({ page }) => {
+  const check = watchConsole(page)
+  await login(page, 'alice', 'alice-password')
+  await page.goto(NS)
+  await expect(page.getByRole('tab', { name: 'Tables' })).toHaveAttribute('aria-selected', 'true')
+  const first = page.locator('tbody tr').first()
+  const name = (await first.locator('td').first().innerText()).trim()
+  await first.click()
+  await expect(page.getByRole('heading', { name })).toBeVisible()
+  await expect(page.getByText('Current snapshot')).toBeVisible()
+
+  await page.getByRole('tab', { name: /^Schema/ }).click()
+  await expect(page.getByRole('treegrid', { name: 'Schema' })).toBeVisible()
+
+  await page.getByRole('tab', { name: /^Snapshots/ }).click()
+  await expect(page.getByText('Branches & tags')).toBeVisible()
+  await expect(page.locator('li').filter({ hasText: 'main' }).first()).toBeVisible()
+
+  await page.getByRole('tab', { name: /^Preview/ }).click()
+  await expect(page.getByText(/\d+ rows · current snapshot/)).toBeVisible()
+  // int64 values beyond 2^53 are shown exactly
+  await expect(page.getByText('9007199254740993').first()).toBeVisible()
+
+  await page.getByRole('tab', { name: /^Maintenance/ }).click()
+  await expect(page.getByText('Compaction', { exact: true }).first()).toBeVisible()
+
+  await page.getByRole('tab', { name: /^Metadata/ }).click()
+  await expect(page.getByText('Current metadata file')).toBeVisible()
+  const html = await page.content()
+  expect(html).not.toContain('SHOULD-NOT-LEAK')
+
+  await page.getByRole('tab', { name: /^Access/ }).click()
+  await expect(page.getByText(/arn:aws:s3tables:::bucket\/analytics\/table\/[0-9a-f-]{36}/).first()).toBeVisible()
+  check()
+})
+
+test('edit table properties with an atomic commit', async ({ page }) => {
+  const check = watchConsole(page)
+  await login(page, 'alice', 'alice-password')
+  await page.goto(NS)
+  await page.locator('tbody tr').first().click()
+  await page.getByRole('tab', { name: /^Properties/ }).click()
+  await page.getByRole('button', { name: 'Add property' }).click()
+  await page.getByLabel('Property key').last().fill('e2e.reviewed-by')
+  await page.getByLabel(/Value for e2e.reviewed-by/).fill('alice')
+  await page.getByRole('button', { name: 'Save changes' }).click()
+  await expect(page.getByText('Committed').first()).toBeVisible()
+  await page.reload()
+  await expect(page.getByLabel(/Value for e2e.reviewed-by/)).toHaveValue('alice')
+  await shot(page, '10-table-properties')
+  check()
+})
+
+test('rename, then drop keeping data, then drop with purge (step-up)', async ({ page }) => {
+  const check = watchConsole(page)
+  await login(page, 'alice', 'alice-password')
+  await page.goto('/c/local/wh/analytics/ns/marketing')
+  const rows = page.locator('tbody tr')
+  await expect(rows.first()).toBeVisible()
+  const before = await rows.count()
+  const target = (await rows.first().locator('td').first().innerText()).trim()
+
+  await rows.first().click()
+  await page.getByRole('button', { name: 'Table actions' }).click()
+  await page.getByRole('menuitem', { name: /Rename/ }).click()
+  await page.getByLabel('Name', { exact: true }).fill('renamed_by_e2e')
+  await page.getByRole('button', { name: 'Rename' }).click()
+  await expect(page).toHaveURL(/\/t\/renamed_by_e2e$/)
+  await expect(page.getByRole('heading', { name: 'renamed_by_e2e' })).toBeVisible()
+
+  // Drop, keeping data (default choice)
+  await page.getByRole('button', { name: 'Table actions' }).click()
+  await page.getByRole('menuitem', { name: /Drop table/ }).click()
+  await expect(page.getByRole('radio', { name: /Keep data files/ })).toBeChecked()
+  await page.getByLabel(/Type/).fill('renamed_by_e2e')
+  await page.getByRole('button', { name: 'Drop table' }).click()
+  await expect(page.getByText('Table dropped')).toBeVisible()
+  await expect(page).toHaveURL(/tab=tables/)
+  await expect(rows).toHaveCount(before - 1)
+  await expect(page.getByText(target, { exact: true })).toHaveCount(0)
+
+  // Purge requires confirming identity
+  const next = (await rows.first().locator('td').first().innerText()).trim()
+  await rows.first().hover()
+  await page.getByRole('button', { name: `Actions for ${next}` }).click()
+  await page.getByRole('menuitem', { name: /Drop/ }).click()
+  await page.getByRole('radio', { name: /Purge data files/ }).check()
+  await page.getByLabel(/Type/).fill(next)
+  await page.getByRole('button', { name: 'Drop and delete data' }).click()
+  await expect(page.getByRole('dialog', { name: "Confirm it's you" })).toBeVisible()
+  await page.getByLabel(/Password for alice/).fill('alice-password')
+  await page.getByRole('button', { name: 'Confirm' }).click()
+  await expect(page.getByText('Table dropped')).toBeVisible()
+  await expect(rows).toHaveCount(before - 2)
+  check()
+})
+
+test('view page: SQL definition and version diff', async ({ page }) => {
+  const check = watchConsole(page)
+  await login(page, 'alice', 'alice-password')
+  await page.goto(NS)
+  await page.getByRole('tab', { name: 'Views' }).click()
+  await page.getByText('revenue_by_customer').click()
+  await expect(page.getByText('SQL definition')).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'trino' })).toBeVisible()
+  await page.getByRole('tab', { name: 'spark' }).click()
+  await expect(page.locator('pre')).toContainText("trunc(order_ts, 'MM')")
+  await page.getByRole('tab', { name: /^Versions/ }).click()
+  await expect(page.getByText('Changes from v1 to v2')).toBeVisible()
+  await expect(page.locator('pre')).toContainText("WHERE order_status <> 'cancelled'")
+  check()
+})
+
+test('read-only user can browse and preview but not commit', async ({ page }) => {
+  await login(page, 'bob', 'bob-password')
+  await page.goto(NS)
+  await page.locator('tbody tr').first().click()
+  await page.getByRole('tab', { name: /^Preview/ }).click()
+  await expect(page.getByText(/\d+ rows · current snapshot/)).toBeVisible()
+  await page.getByRole('tab', { name: /^Properties/ }).click()
+  await page.getByRole('button', { name: 'Add property' }).click()
+  await page.getByLabel('Property key').last().fill('bob.was.here')
+  await page.getByRole('button', { name: 'Save changes' }).click()
+  await expect(page.getByRole('alert').filter({ hasText: 'Access Denied' })).toBeVisible()
+})

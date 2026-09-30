@@ -1,0 +1,28 @@
+# Run the UI on a workstation, over HTTPS on the LAN, against an existing AIStor.
+# Copy to deploy/local/config.yaml (git-ignored) and fill in the placeholders.
+# Certificate: mkcert -cert-file deploy/local/tls/cert.pem -key-file deploy/local/tls/key.pem \
+#                <host>.local <lan-ip> localhost 127.0.0.1 ::1
+server:
+  listen: ":8443"
+  metricsListen: ":9090"
+  publicUrl: "https://<host>.local"                    # the name people open
+  extraOrigins: ["https://<lan-ip>", "https://localhost"] # other names in the certificate
+  tlsCertFile: /etc/aistor-ui/tls/cert.pem
+  tlsKeyFile: /etc/aistor-ui/tls/key.pem
+session:
+  store: memory              # single container; use redis:// for more
+  keys:
+    - id: local
+      value: "<openssl rand -base64 32>"
+auth:
+  builtin: { enabled: true } # sign in with AIStor access keys
+  adminUsers: [minioadmin]
+clusters:
+  - id: lab
+    name: "Lab AIStor"
+    endpoint: "http://<aistor-host>:<s3-port>"
+    region: us-east-1
+    stsDuration: 12h
+semantic:
+  enabled: true
+  bucket: aistor-semantics   # create it first, with versioning enabled

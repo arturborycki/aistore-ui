@@ -1,0 +1,9 @@
+apiVersion: v2
+name: aistor-catalog-ui
+description: Multi-user, secure web UI for the MinIO AIStor Tables (Iceberg) catalog
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords: [aistor, minio, iceberg, catalog]
+home: https://github.com/arturborycki/aistore-ui
+sources: [https://github.com/arturborycki/aistore-ui]

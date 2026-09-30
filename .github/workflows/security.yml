@@ -1,0 +1,136 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '17 4 * * 1' # weekly, to catch newly published vulnerabilities
+
+permissions:
+  contents: read
+
+jobs:
+  govulncheck:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: backend } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: backend/go.mod, cache-dependency-path: backend/go.sum }
+      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  npm-audit:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: { dir: [frontend, e2e] }
+    defaults: { run: { working-directory: '${{ matrix.dir }}' } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      # Runtime dependencies ship in the image: any known vulnerability fails.
+      # Build/test tooling fails only on high or critical.
+      - if: matrix.dir == 'frontend'
+        run: npm audit --omit=dev
+      - run: npm audit --audit-level=high
+
+  codeql:
+    runs-on: ubuntu-latest
+    permissions: { contents: read, security-events: write }
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { language: go, build-mode: autobuild }
+          - { language: javascript-typescript, build-mode: none }
+    steps:
+      - uses: actions/checkout@v4
+      - if: matrix.language == 'go'
+        uses: actions/setup-go@v5
+        with: { go-version-file: backend/go.mod, cache-dependency-path: backend/go.sum }
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          queries: security-extended
+      - if: matrix.language == 'go'
+        run: cd backend && go build ./...
+      - uses: github/codeql-action/analyze@v3
+        with: { category: '/language:${{ matrix.language }}' }
+
+  image-scan:
+    runs-on: ubuntu-latest
+    permissions: { contents: read, security-events: write }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: aistor-catalog-ui:scan
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Trivy (report)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: aistor-catalog-ui:scan
+          format: sarif
+          output: trivy.sarif
+          ignore-unfixed: true
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with: { sarif_file: trivy.sarif, category: trivy-image }
+      - name: Trivy (gate on fixable high/critical)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: aistor-catalog-ui:scan
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+          skip-setup-trivy: true
+      - name: SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: aistor-catalog-ui:scan
+          format: spdx-json
+          output-file: sbom.spdx.json
+          upload-artifact: true
+
+  config-scan:
+    runs-on: ubuntu-latest
+    permissions: { contents: read, security-events: write }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy misconfiguration scan (Dockerfile, Kubernetes, Helm)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: config
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+
+  zap-baseline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: backend/go.mod, cache-dependency-path: backend/go.sum }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: frontend/package-lock.json }
+      - run: cd frontend && npm ci
+      - run: make build
+      - name: Start the stack (test server + UI)
+        run: |
+          backend/bin/aistor-testserver -addr 127.0.0.1:9000 &
+          backend/bin/aistor-ui -config deploy/dev/config.local.yaml &
+          for i in $(seq 30); do curl -fsS http://localhost:8080/healthz && break; sleep 1; done
+      - name: OWASP ZAP baseline
+        uses: zaproxy/action-baseline@v0.14.0
+        with:
+          target: http://localhost:8080
+          rules_file_name: .zap/rules.tsv
+          cmd_options: '-a -j'
+          allow_issue_writing: false
+          fail_action: true

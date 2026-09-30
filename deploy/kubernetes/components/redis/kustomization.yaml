@@ -1,0 +1,7 @@
+# Single-instance Redis for sessions, shared rate limits and recent activity.
+# Uses the redis-password key of the aistor-catalog-ui Secret. Data is
+# ephemeral: a restart signs users out. Use a managed Redis for HA.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+resources:
+  - redis.yaml

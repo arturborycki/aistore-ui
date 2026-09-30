@@ -1,0 +1,139 @@
+# Default values for aistor-catalog-ui.
+
+replicaCount: 2
+
+image:
+  repository: ghcr.io/arturborycki/aistore-ui
+  # Defaults to the chart appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Application configuration, rendered as config.yaml (see the README for every key).
+# ${VAR} references are expanded from the container environment; secret values are
+# read from files under /etc/aistor-ui/secrets (see `secrets` below).
+# When redis.enabled is true and session.store is not set, the chart points the
+# session store at the bundled Redis.
+config:
+  server:
+    listen: ":8080"
+    metricsListen: ":9090"
+    publicUrl: "https://catalog.example.com"
+    trustProxy: true
+  session:
+    keys:
+      - id: k1
+        file: /etc/aistor-ui/secrets/session-key
+  auth:
+    oidc:
+      enabled: false
+      # issuer: https://sso.example.com/realms/aistor
+      # clientId: aistor-ui
+      # clientSecretFile: /etc/aistor-ui/secrets/oidc-client-secret
+      # caFile: /etc/aistor-ui/ca/ca.crt
+    ldap:
+      enabled: true
+      displayName: Directory
+    adminGroups: []
+  clusters:
+    - id: prod
+      name: Production
+      endpoint: "https://aistor.example.com"
+      region: us-east-1
+      # caFile: /etc/aistor-ui/ca/ca.crt
+  # Apache Ossie semantic models: a versioned bucket on each cluster, read and
+  # written with each user's own credentials. serving exposes them read-only to
+  # tools and agents (/ossie/v1 REST and /ossie/mcp) with OIDC bearer tokens.
+  semantic:
+    enabled: false
+    bucket: aistor-semantics
+    serving:
+      enabled: false
+  # audit:
+  #   webhookUrl: https://siem.example.com/hooks/aistor
+  #   webhookSecretFile: /etc/aistor-ui/secrets/audit-webhook-secret
+
+# Secret material mounted at /etc/aistor-ui/secrets/<key>.
+secrets:
+  # Use an existing Secret instead of creating one. It must hold the keys the
+  # config references (session-key, and oidc-client-secret, redis-password,
+  # audit-webhook-secret when used).
+  existingSecret: ""
+  # When creating the Secret: a missing sessionKey or redisPassword is generated
+  # once and kept across upgrades.
+  sessionKey: ""
+  oidcClientSecret: ""
+  auditWebhookSecret: ""
+  redisPassword: ""
+
+# PEM bundle(s) for private CAs (AIStor, IdP), mounted at /etc/aistor-ui/ca.
+# Either reference an existing ConfigMap or inline the certificates.
+ca:
+  existingConfigMap: ""
+  certificates: {}
+  #  ca.crt: |
+  #    -----BEGIN CERTIFICATE-----
+
+# Bundled single-instance Redis for sessions, shared rate limits and activity.
+# For production HA, point config.session.store at a managed Redis instead.
+redis:
+  enabled: true
+  image:
+    repository: redis
+    tag: "7.4-alpine"
+    pullPolicy: IfNotPresent
+  maxmemory: 200mb
+  resources:
+    requests: { cpu: 20m, memory: 64Mi }
+    limits: { memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: catalog.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: catalog-tls
+  #    hosts: [catalog.example.com]
+
+metrics:
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    labels: {}
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+networkPolicy:
+  enabled: true
+  # Namespaces allowed to reach the UI (the ingress controller) and metrics (Prometheus).
+  # Empty selectors allow any namespace.
+  ingressFrom: []
+  #  - namespaceSelector:
+  #      matchLabels: { kubernetes.io/metadata.name: ingress-nginx }
+  # Egress to AIStor and the IdP; tighten with CIDRs for your network.
+  egressPorts: [443, 9000]
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { memory: 256Mi }
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+extraEnv: []

@@ -1,0 +1,183 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/jetbrains-mono';
+
+/* Theme is class-driven (html.dark) so users can override the OS preference. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Design tokens — see docs/STYLE.md.
+ * Neutral zinc base, one blue accent, semantic colours, and faint per-entity
+ * hues. Components use the semantic names only (bg-surface, text-muted, …).
+ */
+:root {
+  --bg: #ffffff;
+  --bg-subtle: #fafafa;
+  --sidebar: #fafafa;
+  --surface: #f4f4f5;
+  --surface-hover: #ececef;
+  --border: #e4e4e7;
+  --border-strong: #d4d4d8;
+  --fg: #18181b;
+  --fg-muted: #52525b;
+  --fg-subtle: #686871;
+
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-fg: #ffffff;
+  --accent-subtle: #eff6ff;
+  --accent-text: #1d4ed8;
+
+  --success: #15803d;
+  --success-subtle: #f0fdf4;
+  --warning: #b45309;
+  --warning-subtle: #fffbeb;
+  --danger: #b91c1c;
+  --danger-hover: #991b1b;
+  --danger-subtle: #fef2f2;
+  --info: #0e7490;
+  --info-subtle: #ecfeff;
+
+  --entity-warehouse: #7c3aed;
+  --entity-namespace: #d97706;
+  --entity-table: #2563eb;
+  --entity-view: #0d9488;
+  --entity-model: #db2777;
+
+  --brand: #c72c48;
+  --ring: #93c5fd;
+  --shadow-pop: 0 4px 16px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.dark {
+  --bg: #09090b;
+  --bg-subtle: #0c0c0e;
+  --sidebar: #0f0f11;
+  --surface: #18181b;
+  --surface-hover: #202024;
+  --border: #27272a;
+  --border-strong: #3f3f46;
+  --fg: #fafafa;
+  --fg-muted: #a1a1aa;
+  --fg-subtle: #8b8b94;
+
+  --accent: #2563eb; /* 5.2:1 with white button text */
+  --accent-hover: #1d4ed8;
+  --accent-fg: #ffffff;
+  --accent-subtle: #172554;
+  --accent-text: #93c5fd;
+
+  --success: #22c55e;
+  --success-subtle: rgba(34, 197, 94, 0.12);
+  --warning: #f59e0b;
+  --warning-subtle: rgba(245, 158, 11, 0.12);
+  --danger: #ef4444;
+  --danger-hover: #f87171;
+  --danger-subtle: rgba(239, 68, 68, 0.12);
+  --info: #22d3ee;
+  --info-subtle: rgba(34, 211, 238, 0.12);
+
+  --entity-warehouse: #a78bfa;
+  --entity-namespace: #fbbf24;
+  --entity-table: #60a5fa;
+  --entity-view: #2dd4bf;
+  --entity-model: #f472b6;
+
+  --ring: #1d4ed8;
+  --shadow-pop: 0 0 0 1px #27272a, 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+@theme inline {
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --color-bg: var(--bg);
+  --color-bg-subtle: var(--bg-subtle);
+  --color-sidebar: var(--sidebar);
+  --color-surface: var(--surface);
+  --color-surface-hover: var(--surface-hover);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-fg: var(--fg);
+  --color-muted: var(--fg-muted);
+  --color-subtle: var(--fg-subtle);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-subtle: var(--accent-subtle);
+  --color-accent-text: var(--accent-text);
+  --color-success: var(--success);
+  --color-success-subtle: var(--success-subtle);
+  --color-warning: var(--warning);
+  --color-warning-subtle: var(--warning-subtle);
+  --color-danger: var(--danger);
+  --color-danger-hover: var(--danger-hover);
+  --color-danger-subtle: var(--danger-subtle);
+  --color-info: var(--info);
+  --color-info-subtle: var(--info-subtle);
+  --color-ent-warehouse: var(--entity-warehouse);
+  --color-ent-namespace: var(--entity-namespace);
+  --color-ent-model: var(--entity-model);
+  --color-ent-table: var(--entity-table);
+  --color-ent-view: var(--entity-view);
+  --color-brand: var(--brand);
+  --color-ring: var(--ring);
+  --shadow-pop: var(--shadow-pop);
+
+  --radius-control: 6px;
+  --radius-card: 8px;
+  --radius-modal: 12px;
+
+  --animate-fade-in: fade-in 140ms ease-out;
+  --animate-pop-in: pop-in 140ms ease-out;
+  --animate-slide-in: slide-in 160ms ease-out;
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes pop-in {
+    from { opacity: 0; transform: translateY(-2px) scale(0.98); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes slide-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: none; }
+  }
+}
+
+@layer base {
+  html {
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: 'cv11', 'ss01';
+  }
+  body {
+    @apply bg-bg text-fg font-sans;
+  }
+  * {
+    @apply border-border;
+  }
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  ::selection {
+    background: var(--accent-subtle);
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+/* Thin, theme-aware scrollbars. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}

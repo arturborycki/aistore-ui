@@ -1,0 +1,16 @@
+# Ingress only from the ingress controller and Prometheus; egress to DNS,
+# Redis, AIStor and the IdP (HTTPS). Tighten the egress CIDRs for your network.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: aistor-catalog-ui
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/component: ui }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - ports: [{ port: 8080 }, { port: 9090 }]
+  egress:
+    - ports: [{ port: 53, protocol: UDP }, { port: 53, protocol: TCP }]
+    - ports: [{ port: 6379 }]
+    - ports: [{ port: 443 }, { port: 9000 }]
