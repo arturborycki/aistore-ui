@@ -369,6 +369,7 @@ audit: { sink: stdout, webhookUrl: null }
 | **2 – Manage** ✅ | Create/drop warehouse, namespace, table and view (explicit-purge safeguards); properties and tags editing; rename; register table/view; step-up re-auth; audit trail |
 | **3 – Evolve and operate** ✅ | Schema, partition and sort evolution wizards, snapshot rollback, branch/tag management, conflict handling, multi-table change sets, **maintenance configuration** (warehouse and table), **encryption settings** |
 | **Hardening** ✅ | Time travel, snapshot expiry, row-key editing; sessions page and admin revoke; in-place re-auth on expired credentials; expiry warnings; server-side catalog search; activity filters, paging and CSV export; Redis-shared rate limits; signed audit webhook; OIDC CA; Helm chart, Ingress, Redis component; axe (WCAG 2.1 AA), responsive layout, code splitting; CodeQL, govulncheck, Trivy, ZAP, SBOM, Dependabot |
+| **5 – Semantic layer** (proposed) | Apache Ossie models built from Iceberg schemas, stored in AIStor under PBAC, served as YAML/JSON: see [SEMANTIC_LAYER.md](SEMANTIC_LAYER.md) |
 | **4 – Beyond** | Optional admin policy viewer or generator, Delta Sharing management, staged-create workflows, localisation |
 
 ---
