@@ -372,7 +372,7 @@ func previewRows(t *tableState, limit int) map[string]any {
 	if len(arr(md["snapshots"])) == 0 {
 		n = 0
 	}
-	rows := make([]any, 0, n)
+	rows := []any{}
 	base := time.Now().Add(-72 * time.Hour)
 	for i := 0; i < n; i++ {
 		row := make([]any, 0, len(cur))
