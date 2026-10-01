@@ -127,7 +127,7 @@ jobs:
           backend/bin/aistor-ui -config deploy/dev/config.local.yaml &
           for i in $(seq 30); do curl -fsS http://localhost:8080/healthz && break; sleep 1; done
       - name: OWASP ZAP baseline
-        uses: zaproxy/action-baseline@v0.14.0
+        uses: zaproxy/action-baseline@v0.15.0
         with:
           target: http://localhost:8080
           rules_file_name: .zap/rules.tsv
