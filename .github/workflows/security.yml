@@ -16,7 +16,7 @@ jobs:
     defaults: { run: { working-directory: backend } }
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with: { go-version-file: backend/go.mod, cache-dependency-path: backend/go.sum }
       - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
@@ -47,16 +47,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - if: matrix.language == 'go'
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with: { go-version-file: backend/go.mod, cache-dependency-path: backend/go.sum }
-      - uses: github/codeql-action/init@v3
+      - uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
           queries: security-extended
       - if: matrix.language == 'go'
         run: cd backend && go build ./...
-      - uses: github/codeql-action/analyze@v3
+      - uses: github/codeql-action/analyze@v4
         with: { category: '/language:${{ matrix.language }}' }
 
   image-scan:
@@ -64,7 +64,7 @@ jobs:
     permissions: { contents: read, security-events: write }
     steps:
       - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
       - uses: docker/build-push-action@v7
         with:
           context: .
@@ -79,7 +79,7 @@ jobs:
           format: sarif
           output: trivy.sarif
           ignore-unfixed: true
-      - uses: github/codeql-action/upload-sarif@v3
+      - uses: github/codeql-action/upload-sarif@v4
         if: always()
         with: { sarif_file: trivy.sarif, category: trivy-image }
       - name: Trivy (gate on fixable high/critical)
@@ -115,7 +115,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with: { go-version-file: backend/go.mod, cache-dependency-path: backend/go.sum }
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm, cache-dependency-path: frontend/package-lock.json }
