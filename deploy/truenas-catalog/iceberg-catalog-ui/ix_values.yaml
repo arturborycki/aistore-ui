@@ -1,0 +1,22 @@
+images:
+  image:
+    repository: ghcr.io/arturborycki/aistore-ui
+    tag: "0.1.0@sha256:e9af3ee18874ae28946865b8d2e674ddc12fd6d5a86e52b460b8c89f6a006d9d"
+  container_utils_image:
+    repository: ixsystems/container-utils
+    tag: "1.0.2@sha256:46eba20714c1cc6784f60e245c32c33a2d9f616e47d804694a9854248c89a992"
+
+consts:
+  app_container_name: iceberg-catalog-ui
+  perms_container_name: permissions
+  data_path: /var/lib/aistor-ui
+  config_path: /etc/aistor-ui/config.yaml
+  ssl_key_path: /etc/aistor-ui/tls/key.pem
+  ssl_cert_path: /etc/aistor-ui/tls/cert.pem
+  metrics_port: 9090
+  notes_body: |
+    Sign in with an AIStor access key and secret key. What each user can see and
+    change is decided by their own AIStor policies; the app holds no shared credentials.
+
+    Without a selected certificate the app uses a self-signed one, so the browser
+    asks you to accept it once. The app log shows its SHA-256 fingerprint.
