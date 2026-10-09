@@ -18,9 +18,6 @@ x-settings: &settings
   # e.g. http://<aistor-host>:<s3-port>
   AISTOR_ENDPOINT: ""
   AISTOR_NAME: "AIStor"
-  # Encrypts sessions: 32 random bytes, e.g. from `openssl rand -base64 32`
-  # in System > Shell. Changing it signs everyone out.
-  SESSION_KEY: "CHANGE-ME"
   # AIStor users who may see everyone's activity, comma separated.
   ADMIN_USERS: "minioadmin"
   # Semantic models (Apache Ossie): a bucket with versioning enabled.
@@ -48,9 +45,10 @@ services:
           tlsKeyFile: /var/lib/aistor-ui/tls/key.pem
         session:
           store: memory
-          keys:
+          keys: # created on first start and kept in the app's volume
             - id: truenas
-              value: "$${SESSION_KEY}"
+              file: /var/lib/aistor-ui/session.key
+              generate: true
         auth:
           builtin: { enabled: true }
           adminUsers: [$${ADMIN_USERS}]

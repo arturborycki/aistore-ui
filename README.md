@@ -127,7 +127,7 @@ People must open one of the names in `publicUrl` / `extraOrigins`; sign-in from 
 
 ## TrueNAS app
 
-On TrueNAS 24.10 or later, install the UI as a custom app: **Apps → Discover Apps → ⋮ → Install via YAML** with [`deploy/truenas/docker-compose.yaml`](deploy/truenas/docker-compose.yaml). Edit the settings block at the top (address, AIStor endpoint, session key). The UI serves HTTPS on port 30443 with a self-signed certificate that it creates on first start and keeps. See [deploy/truenas/README.md](deploy/truenas/README.md).
+On TrueNAS 24.10 or later, install the UI as a custom app: **Apps → Discover Apps → ⋮ → Install via YAML** with [`deploy/truenas/docker-compose.yaml`](deploy/truenas/docker-compose.yaml). Edit the settings block at the top (address and AIStor endpoint). The UI serves HTTPS on port 30443 with a self-signed certificate that it creates on first start and keeps. See [deploy/truenas/README.md](deploy/truenas/README.md).
 
 ## Kubernetes
 
@@ -176,7 +176,7 @@ The server reads a YAML file (`-config`, or `AISTOR_UI_CONFIG`), or YAML held in
 | `server.tlsSelfSigned` | Create a self-signed certificate at those paths when none is there. The UI replaces only certificates it created itself, and only when they are about to expire or no longer cover `publicUrl` / `extraOrigins` |
 | `server.trustProxy` | Take the client IP from `X-Forwarded-For` (for rate limits and audit) |
 | `session.store` | `memory` (single replica) or `redis://` / `rediss://` URL |
-| `session.keys[]` | AES-256 keys (`value` or `file`). The first key encrypts; all keys decrypt, which allows rotation |
+| `session.keys[]` | AES-256 keys (`value` or `file`). The first key encrypts; all keys decrypt, which allows rotation. `generate: true` with a `file` creates a random key there on first start and keeps it |
 | `session.idleTimeout` / `absoluteTimeout` / `stepUpValidFor` | Default 30m / 12h / 5m |
 | `auth.oidc` | `issuer`, `clientId`, `clientSecret[File]`, `scopes`, `groupsClaim`, `usernameClaim`, `stsToken` (`id_token` or `access_token`), `discoveryUrl` (split-horizon), `endSessionRedirect`, `caFile` (PEM bundle trusted for the IdP, in addition to system roots) |
 | `auth.ldap.enabled` | Directory sign-in through AIStor `AssumeRoleWithLDAPIdentity` |

@@ -7,6 +7,7 @@
 package config
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -14,6 +15,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -85,6 +87,9 @@ type Key struct {
 	ID    string `yaml:"id"`
 	Value string `yaml:"value"` // base64 or hex encoded 32 bytes
 	File  string `yaml:"file"`
+	// Generate creates a random key in File when the file does not exist yet
+	// (and keeps it there), so an appliance install needs no key from the user.
+	Generate bool `yaml:"generate"`
 
 	bytes []byte
 }
@@ -306,6 +311,14 @@ func (c *Config) resolveSecrets() error {
 	for i := range c.Session.Keys {
 		k := &c.Session.Keys[i]
 		val := k.Value
+		if k.Generate {
+			if k.File == "" {
+				return fmt.Errorf("session key %q: generate needs a file to keep the key in", k.ID)
+			}
+			if err := generateKeyFile(k.File); err != nil {
+				return fmt.Errorf("session key %q: %w", k.ID, err)
+			}
+		}
 		if k.File != "" {
 			s, err := readSecretFile(k.File)
 			if err != nil {
@@ -461,4 +474,32 @@ func (c *Config) Cluster(id string) (*Cluster, bool) {
 
 func isLoopback(host string) bool {
 	return host == "localhost" || host == "127.0.0.1" || host == "::1" || strings.HasSuffix(host, ".localhost")
+}
+
+// generateKeyFile writes 32 random bytes (base64) to path unless it exists.
+func generateKeyFile(path string) error {
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("create key directory (is it writable?): %w", err)
+	}
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return nil // created concurrently
+		}
+		return fmt.Errorf("create key file (is the directory writable?): %w", err)
+	}
+	if _, err := f.WriteString(base64.StdEncoding.EncodeToString(b) + "\n"); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
 }
