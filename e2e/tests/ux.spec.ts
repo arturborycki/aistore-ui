@@ -79,7 +79,7 @@ test('sessions: list devices and revoke another session', async ({ page, browser
   await page.goto('/c/local/sessions')
   const mine = page.getByRole('table').first()
   await expect(mine.getByText('This device')).toBeVisible()
-  const revoke = mine.getByRole('button', { name: /^Sign out alice on .*[^)]$/ })
+  const revoke = mine.getByRole('button', { name: /^Revoke alice's session on / })
   expect(await revoke.count()).toBeGreaterThan(0)
   await shot(page, '22-sessions')
   await revoke.first().click()

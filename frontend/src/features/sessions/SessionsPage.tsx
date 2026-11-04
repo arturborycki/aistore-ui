@@ -86,7 +86,12 @@ export function SessionsPage() {
       header: '',
       width: '110px',
       cell: (s) => (
-        <Button size="sm" variant="danger-outline" onClick={() => setTarget({ s, admin })} aria-label={`Sign out ${s.user.username} on ${describeAgent(s.userAgent).label}${s.current ? ' (this device)' : ''}`}>
+        <Button size="sm" variant="danger-outline" onClick={() => setTarget({ s, admin })} aria-label={
+            s.current
+              ? `Sign out ${s.user.username} on ${describeAgent(s.userAgent).label} (this device)`
+              : `Revoke ${s.user.username}'s session on ${describeAgent(s.userAgent).label}`
+          }
+        >
           <LogOut /> {s.current ? 'Sign out' : 'Revoke'}
         </Button>
       ),
