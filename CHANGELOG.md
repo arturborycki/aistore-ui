@@ -14,7 +14,9 @@ Security and accessibility update. No configuration changes.
 - go-jose 4.1.8 (CVE-2026-116587) and chi 5.5.0 (CVE-2026-114437).
 - Updated vite, vitest and undici in the frontend build.
 - minimatch 11.0.4 in the lint toolchain (GHSA-g3hv-75wg-m249).
-- Rebuilt on the current distroless base image.
+- Not yet fixed: the base image's `tzdata` and `ca-certificates` updates
+  (Debian DLA-4792-1, DLA-4845-1, DLA-4854-1, DLA-4867-1). They will ship
+  when the upstream distroless image includes them.
 
 ### Accessibility
 
