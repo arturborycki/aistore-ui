@@ -1,10 +1,10 @@
 images:
   image:
     repository: ghcr.io/arturborycki/aistore-ui
-    tag: "0.1.0@sha256:e9af3ee18874ae28946865b8d2e674ddc12fd6d5a86e52b460b8c89f6a006d9d"
+    tag: "0.1.1@sha256:cf975acc23b265766959423dc9acb1ceac72416f142017e910cd4ab1cd8f1d39"
   container_utils_image:
-    repository: ixsystems/container-utils
-    tag: "1.0.2@sha256:46eba20714c1cc6784f60e245c32c33a2d9f616e47d804694a9854248c89a992"
+    repository: ghcr.io/truenas/containers/container-utils
+    tag: "1.1.2@sha256:6ddfdc314af9d18cfacb836ad266ef0ed91fecaa3686b20be72e464972860c08"
 
 consts:
   app_container_name: iceberg-catalog-ui

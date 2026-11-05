@@ -1,9 +1,9 @@
-app_version: 0.1.0
+app_version: 0.1.1
 capabilities: []
 categories:
 - storage
 changelog_url: https://github.com/arturborycki/aistore-ui/blob/main/CHANGELOG.md
-date_added: '2026-10-09'
+date_added: '2026-11-04'
 description: Multi-user web UI for the Apache Iceberg catalog of MinIO AIStor Tables.
   Browse and manage warehouses, namespaces, tables, views, snapshots and column
   statistics, and describe data with Apache Ossie semantic models.
@@ -17,8 +17,8 @@ keywords:
 - catalog
 - data-lake
 - s3
-lib_version: 2.3.15
-lib_version_hash: ''
+lib_version: 2.3.18
+lib_version_hash: ed9839f681342ae8ca5f8c4c860ae22d0845a0919f472ba780d6edbc838f2633
 maintainers:
 - email: dev@truenas.com
   name: truenas
