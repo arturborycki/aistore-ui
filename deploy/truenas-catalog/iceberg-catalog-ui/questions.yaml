@@ -32,7 +32,7 @@ questions:
           label: Public URL
           description: |
             The address people open in the browser, including the port,
-            for example https://truenas.local:31443 or https://192.0.2.10:31443.</br>
+            for example https://truenas.local:30553 or https://192.0.2.10:30553.</br>
             Sign-in is only accepted from this address and the additional origins below.
           schema:
             type: string
@@ -177,7 +177,7 @@ questions:
                 label: Port Number
                 schema:
                   type: int
-                  default: 31443
+                  default: 30553
                   min: 1
                   max: 65535
                   required: true

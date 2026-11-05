@@ -1,5 +1,12 @@
 # Submitting to the TrueNAS community catalog
 
+**Status (2026-11-04):** submitted as
+[truenas/apps#6397](https://github.com/truenas/apps/pull/6397) (app version
+0.1.1, port 30553), linked to the App Request
+[truenas/apps#6035](https://github.com/truenas/apps/issues/6035). The PR is
+made from the branch `add-iceberg-catalog-ui` in the fork `arturborycki/apps`.
+`iceberg-catalog-ui/` here mirrors what was submitted.
+
 `iceberg-catalog-ui/` is a draft of the app for
 [truenas/apps](https://github.com/truenas/apps), in the format described in
 their [CONTRIBUTIONS.md](https://github.com/truenas/apps/blob/master/CONTRIBUTIONS.md).
@@ -13,16 +20,15 @@ submission and may decline one.
    first.
 2. **Fork truenas/apps** and copy `iceberg-catalog-ui/` to
    `ix-dev/community/iceberg-catalog-ui/`.
-3. **Vendor the template library**, then commit the result. Their tooling
-   generates it:
-
-   ```bash
-   devbox run copy-lib   # writes templates/library/ and lib_version_hash in app.yaml
-   ```
-
-   Alternatively, copy `library/<lib_version>/` to
-   `templates/library/base_v<lib_version with _>/` and set `lib_version_hash`
-   to that version's entry in `library/hashes.yaml`.
+3. **Set the template library version.** Use the newest `library/2.x.y`.
+   Then run `devbox run copy-lib`, or set `lib_version_hash` to that version's
+   entry in `library/hashes.yaml`. The generated `templates/library/` is
+   git-ignored in truenas/apps (their CI creates it). For local rendering,
+   copy `library/<version>/` to `templates/library/base_v<version with _>/`.
+   Don't commit it, despite what older versions of their guide say.
+   **Port:** the default must be the next free port that
+   `./.github/scripts/port_validation.py` prints. Don't pick one by hand.
+   Test files use a non-default port (8443).
 4. **Test both scenarios** on a Linux amd64 machine. Their validation image
    needs the `openat2` system call, which emulated amd64 on Apple Silicon
    lacks.
@@ -41,7 +47,8 @@ submission and may decline one.
 **Updates after the merge:** truenas/apps runs Renovate on image tags. Each new
 `vX.Y.Z` release here becomes a PR there that bumps the tag and digest in
 `ix_values.yaml` and the app's `version`. Changes to the template or the form
-need a PR from us, with `version` bumped.
+need a PR from us, with `version` bumped. Base the branch on a fresh
+`upstream/master` in the fork.
 
 ## App Request issue
 
