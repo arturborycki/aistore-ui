@@ -4,6 +4,26 @@ All notable changes to this project are documented here. Versions follow
 [Semantic Versioning](https://semver.org/). Container images are published as
 `ghcr.io/arturborycki/aistore-ui:<version>`.
 
+## [0.1.1] - 2026-11-04
+
+Security and accessibility update. No configuration changes.
+
+### Security
+
+- Go 1.26.10: crypto/x509 fix, GO-2026-6809.
+- go-jose 4.1.8 (CVE-2026-116587) and chi 5.5.0 (CVE-2026-114437).
+- Updated vite, vitest and undici in the frontend build.
+- minimatch 11.0.4 in the lint toolchain (GHSA-g3hv-75wg-m249).
+- Not yet fixed: the base image's `tzdata` and `ca-certificates` updates
+  (Debian DLA-4792-1, DLA-4845-1, DLA-4854-1, DLA-4867-1). They will ship
+  when the upstream distroless image includes them.
+
+### Accessibility
+
+- The account menu, catalog search and session revoke buttons have
+  accessible names that include their visible text (WCAG 2.5.3, Label in
+  Name). Voice-control users can activate them by saying what they see.
+
 ## [0.1.0] - 2026-10-09
 
 First release.
@@ -55,4 +75,5 @@ First release.
 - `-healthcheck auto` probes the server's own listener.
 - Light, dark and system themes. WCAG 2.1 AA contrast is checked in CI.
 
+[0.1.1]: https://github.com/arturborycki/aistore-ui/releases/tag/v0.1.1
 [0.1.0]: https://github.com/arturborycki/aistore-ui/releases/tag/v0.1.0

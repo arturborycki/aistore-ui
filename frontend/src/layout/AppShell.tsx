@@ -102,7 +102,9 @@ function UserMenu({ cluster }: { cluster: string }) {
   return (
     <Menu>
       <MenuTrigger asChild>
-        <button className="flex h-10 w-full items-center gap-2 rounded-[var(--radius-control)] px-2 text-left hover:bg-surface" aria-label="Account menu">
+        {/* The accessible name must contain the visible text (WCAG 2.5.3), so the label is a hidden prefix. */}
+        <button className="flex h-10 w-full items-center gap-2 rounded-[var(--radius-control)] px-2 text-left hover:bg-surface">
+          <span className="sr-only">Account menu: </span>
           <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-accent-subtle text-[11px] font-semibold text-accent-text">{initials}</span>
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[13px] font-medium">{me.user.name || me.user.username}</span>
@@ -255,11 +257,11 @@ export function AppShell() {
           <ThemeToggle />
           <button
             onClick={() => palette.setOpen(true)}
-            aria-label="Search catalog"
             className="flex h-8 w-64 items-center gap-2 rounded-[var(--radius-control)] border border-border bg-bg-subtle px-2.5 text-[12.5px] text-subtle hover:border-border-strong hover:text-muted max-md:w-auto"
           >
             <Search className="size-3.5" />
             <span className="flex-1 text-left max-md:hidden">Search catalog…</span>
+            <span className="sr-only md:hidden">Search catalog</span>
             <Kbd>⌘K</Kbd>
           </button>
         </header>
