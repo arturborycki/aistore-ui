@@ -26,7 +26,10 @@ x-settings: &settings
 
 services:
   catalog-ui:
-    image: ghcr.io/arturborycki/aistore-ui:latest
+    # A release tag, so the running version is visible and upgrading is explicit:
+    # Edit the app, change the tag to a newer release, and save.
+    # Releases: https://github.com/arturborycki/aistore-ui/releases
+    image: ghcr.io/arturborycki/aistore-ui:0.2.0
     restart: unless-stopped
     command: ["-config", "env:AISTOR_UI_CONFIG_YAML"]
     environment:

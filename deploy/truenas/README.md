@@ -50,9 +50,20 @@ installed on the clients) or from your own CA:
 
 ## Updating
 
-**Apps → aistor-catalog-ui → Update** (or Edit → Save) pulls the newest
-`ghcr.io/arturborycki/aistore-ui:latest`. To stay on a fixed version, replace
-`latest` with a release tag or a `sha-…` tag.
+TrueNAS shows version numbers and an Upgrade button only for catalog apps.
+For an app installed from YAML, the image tag is the version. To upgrade:
+
+1. Find the newest release on the
+   [releases page](https://github.com/arturborycki/aistore-ui/releases).
+2. Open **Apps → aistor-catalog-ui → Edit**, change the tag in
+   `image: ghcr.io/arturborycki/aistore-ui:<version>`, and save. TrueNAS pulls
+   that image and restarts the app. The certificate and session key in the
+   app's volume are kept, but sessions are in memory, so users sign in again.
+
+An install that uses the moving `latest` tag isn't offered updates. Refresh it
+from **System → Shell** with
+`sudo midclt call -j app.pull_images aistor-catalog-ui '{"redeploy": true}'`,
+or switch it to a release tag as above.
 
 ## Notes
 
