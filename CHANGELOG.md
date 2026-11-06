@@ -4,6 +4,22 @@ All notable changes to this project are documented here. Versions follow
 [Semantic Versioning](https://semver.org/). Container images are published as
 `ghcr.io/arturborycki/aistore-ui:<version>`.
 
+## [0.2.0] - 2026-11-05
+
+### Configuration
+
+- Every setting can be given as an environment variable, which overrides the
+  file. The configuration file is optional when variables are used.
+  - Names follow the YAML path: `server.publicUrl` is
+    `AISTOR_UI_SERVER_PUBLIC_URL`.
+  - The first cluster is `AISTOR_UI_CLUSTER_*` and the first session key is
+    `AISTOR_UI_SESSION_KEY_*`.
+  - Lists are comma separated, maps are `k=v` pairs, and durations use Go
+    syntax.
+- An unknown `AISTOR_UI_*` variable stops startup with its name. Variables
+  that the configuration file references as `${VAR}` are exempt, so existing
+  setups keep working.
+
 ## [0.1.1] - 2026-11-04
 
 Security and accessibility update. No configuration changes.
@@ -75,5 +91,6 @@ First release.
 - `-healthcheck auto` probes the server's own listener.
 - Light, dark and system themes. WCAG 2.1 AA contrast is checked in CI.
 
+[0.2.0]: https://github.com/arturborycki/aistore-ui/releases/tag/v0.2.0
 [0.1.1]: https://github.com/arturborycki/aistore-ui/releases/tag/v0.1.1
 [0.1.0]: https://github.com/arturborycki/aistore-ui/releases/tag/v0.1.0

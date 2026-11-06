@@ -167,7 +167,14 @@ The base images are build args (`NODE_IMAGE`, `GO_IMAGE`, `RUNTIME_IMAGE`), so y
 
 ## Configuration
 
-The server reads a YAML file (`-config`, or `AISTOR_UI_CONFIG`), or YAML held in an environment variable with `-config env:NAME` (for platforms that cannot mount a file into a read-only container). `${VAR}` references are expanded from the environment, and any secret can be supplied as a `*File` path instead. Start from `deploy/compose/config.yaml` or `deploy/kubernetes/configmap.yaml`.
+The server reads a YAML file (`-config`, or `AISTOR_UI_CONFIG`), or YAML held in an environment variable with `-config env:NAME` (for platforms that cannot mount a file into a read-only container).
+
+**Environment variables.** Every setting can also be given as an environment variable. These override the file, and the file can then be left out entirely.
+
+- **Names:** `AISTOR_UI_` followed by the setting's YAML path in upper snake case. For example, `server.publicUrl` is `AISTOR_UI_SERVER_PUBLIC_URL` and `auth.oidc.clientId` is `AISTOR_UI_AUTH_OIDC_CLIENT_ID`.
+- **Lists of objects:** the first cluster is `AISTOR_UI_CLUSTER_<FIELD>` (`AISTOR_UI_CLUSTER_ENDPOINT`), and the first session key is `AISTOR_UI_SESSION_KEY_<FIELD>` (`AISTOR_UI_SESSION_KEY_VALUE`, or `…_FILE` with `…_GENERATE=true`).
+- **Values:** lists are comma separated (`AISTOR_UI_AUTH_ADMIN_USERS=alice,bob`), maps are `k=v` pairs separated by commas, and durations use Go syntax (`45m`, `12h`).
+- **Typos fail:** an unknown `AISTOR_UI_*` variable stops startup with its name, just as an unknown YAML key does. Variables that the file itself references as `${VAR}` are exempt. `${VAR}` references are expanded from the environment, and any secret can be supplied as a `*File` path instead. Start from `deploy/compose/config.yaml` or `deploy/kubernetes/configmap.yaml`.
 
 | Key | Meaning |
 |---|---|

@@ -60,3 +60,26 @@ clusters: [{ id: lab, endpoint: "http://aistor:9000" }]
 		t.Error("generate without file must be an error")
 	}
 }
+
+func TestYAMLInEnvironmentIsNotASetting(t *testing.T) {
+	t.Setenv("AISTOR_UI_CONFIG_YAML", `
+server: { publicUrl: "https://nas.local:30443" }
+session: { keys: [{ id: a, value: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" }] }
+auth: { builtin: { enabled: true } }
+clusters: [{ id: lab, endpoint: "http://aistor:9000" }]
+`)
+	if _, err := Load("env:AISTOR_UI_CONFIG_YAML"); err != nil {
+		t.Fatalf("existing TrueNAS YAML installs must keep working: %v", err)
+	}
+}
+
+func TestMissingFileWithEnvironment(t *testing.T) {
+	t.Setenv("AISTOR_UI_SERVER_PUBLIC_URL", "https://nas.local")
+	t.Setenv("AISTOR_UI_SESSION_KEY_VALUE", "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+	t.Setenv("AISTOR_UI_AUTH_BUILTIN_ENABLED", "true")
+	t.Setenv("AISTOR_UI_CLUSTER_ID", "lab")
+	t.Setenv("AISTOR_UI_CLUSTER_ENDPOINT", "http://aistor:9000")
+	if _, err := Load(t.TempDir() + "/missing.yaml"); err != nil {
+		t.Fatalf("a missing file must be fine when AISTOR_UI_* variables are set: %v", err)
+	}
+}

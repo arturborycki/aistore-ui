@@ -13,10 +13,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -181,23 +183,46 @@ func Load(path string) (*Config, error) {
 		if strings.TrimSpace(raw) == "" {
 			return nil, fmt.Errorf("read config: environment variable %s is empty", name)
 		}
-		return Parse([]byte(raw))
+		// The variable holding the YAML is not itself a setting.
+		environ := slices.DeleteFunc(os.Environ(), func(kv string) bool { return strings.HasPrefix(kv, name+"=") })
+		return parse([]byte(raw), environ)
 	}
 	raw, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) && hasConfigEnv(os.Environ()) {
+		// No file: the configuration comes from AISTOR_UI_* variables alone.
+		raw, err = nil, nil
+	}
 	if err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
 	return Parse(raw)
 }
 
-// Parse expands environment references, decodes YAML, applies defaults and validates.
+// Parse expands environment references, decodes YAML, applies AISTOR_UI_*
+// variables, then defaults, and validates.
 func Parse(raw []byte) (*Config, error) {
-	expanded := os.ExpandEnv(string(raw))
+	return parse(raw, os.Environ())
+}
+
+func parse(raw []byte, environ []string) (*Config, error) {
+	// Variables the file references as ${VAR} are inputs to the file, not settings.
+	referenced := map[string]bool{}
+	expanded := os.Expand(string(raw), func(name string) string {
+		referenced[name] = true
+		return os.Getenv(name)
+	})
+	environ = slices.DeleteFunc(slices.Clone(environ), func(kv string) bool {
+		k, _, _ := strings.Cut(kv, "=")
+		return referenced[k]
+	})
 	var c Config
 	dec := yaml.NewDecoder(strings.NewReader(expanded))
 	dec.KnownFields(true)
-	if err := dec.Decode(&c); err != nil {
+	if err := dec.Decode(&c); err != nil && !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("parse config: %w", err)
+	}
+	if err := applyEnv(&c, environ); err != nil {
+		return nil, err
 	}
 	c.applyDefaults()
 	// Report every problem at once, so a first install shows all missing settings.
@@ -502,4 +527,15 @@ func generateKeyFile(path string) error {
 		return err
 	}
 	return f.Close()
+}
+
+// hasConfigEnv reports whether any AISTOR_UI_* configuration variable is set.
+func hasConfigEnv(environ []string) bool {
+	for _, kv := range environ {
+		k, _, _ := strings.Cut(kv, "=")
+		if strings.HasPrefix(k, EnvPrefix) && !slices.Contains(envNotConfig, k) {
+			return true
+		}
+	}
+	return false
 }
