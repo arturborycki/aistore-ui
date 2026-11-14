@@ -1,11 +1,18 @@
 # Next session memo
 
-_Last updated: 2026-11-06._
+_Last updated: 2026-11-13._
 
 ## State of the repository
 
-- `main` is at `0de91fd`. CI and Security are green. No open pull requests
-  and no Dependabot alerts.
+- `main` is at `98c704f`. There are no Dependabot alerts.
+- **Four open Dependabot PRs, all failing only govulncheck:**
+  - #34: @playwright/test 1.65.0
+  - #35: frontend npm-minor group
+  - #36: jsdom 31 (major)
+  - #37: backend go-minor group
+
+  The cause is GO-2026-6859 in `net/http`, fixed in **Go 1.26.11**. None of
+  the PRs bumps Go, so each fails on its own (see Next steps).
 - **Latest release: v0.2.0** (2026-11-05), from tag `v0.2.0` on `a5f832d`.
   - Image: `ghcr.io/arturborycki/aistore-ui:0.2.0` (also `0.2`), digest
     `sha256:c733099abab60fa77d6936bb9faaa4c019e967989f94bbe69a36b41ffcd654ce`,
@@ -92,28 +99,29 @@ _Last updated: 2026-11-06._
 
 ## Next steps
 
-1. **Follow truenas/apps#6397.**
-   - Check for new review comments and the CI result once workflows are
-     approved.
-   - Fixes: push to `add-iceberg-catalog-ui` in the fork (clone it, add
-     `upstream`, branch from that).
-   - Retest locally with the plain-write render shim (see `SUBMISSION.md`).
-   - Posting there acts under the user's account. The user has approved
-     responding to this review; ask again for anything beyond that.
-2. **Next app release:**
-   - add a `CHANGELOG.md` entry;
-   - `gh release create vX.Y.Z` on `main` (this needs the user's OK, since
-     auto mode treats it as a public surface);
-   - CI publishes the images;
-   - update the catalog PR's digest if it isn't merged yet, otherwise
-     TrueNAS's Renovate bot does it;
-   - bump the tag in `deploy/truenas/docker-compose.yaml`.
-3. **TypeScript 7:** Dependabot ignores the major version, because
-   typescript-eslint 8.x supports TypeScript below 6.1 only. When that
+1. **Go 1.26.11, then the Dependabot PRs.**
+   - In one PR: set `go 1.26.11` in `backend/go.mod`, and fold in
+     #34/#35/#37 as before (#29 was the model). Check jsdom 31 (#36, a major
+     version) against the frontend unit tests.
+   - Run `make e2e` locally; the Playwright update needs
+     `npx playwright install chromium`.
+   - After merging, close the superseded Dependabot PRs.
+   - Then probably cut **v0.2.1** (security). Publishing the release needs
+     the user's OK. Bump the tag in `deploy/truenas/docker-compose.yaml`, and
+     the digest in the catalog PR if it's still open.
+2. **Follow truenas/apps#6397.** No maintainer activity since our reply on
+   2026-11-06, and their CI still hasn't run (workflow approval pending).
+   - Fixes go to the branch `add-iceberg-catalog-ui` in `arturborycki/apps`.
+     Retest with the plain-write render shim.
+   - Posting there acts under the user's account. Only do it when the user
+     asks.
+   - If it stays quiet, a polite ping on the PR could help, with the user's
+     OK.
+3. **TypeScript 7:** Dependabot ignores the major version. typescript-eslint
+   8.72.1 (2026-11-06) still supports TypeScript below 6.1 only. When that
    changes, comment `@dependabot unignore typescript` and upgrade both.
 4. Optional: simplify `deploy/truenas/docker-compose.yaml` to plain
-   `AISTOR_UI_*` variables, without the embedded YAML. The current file
-   still works and is covered by a test.
+   `AISTOR_UI_*` variables, without the embedded YAML.
 5. Ideas not started:
    - Redis-backed sessions;
    - a staged-create UI;
@@ -126,8 +134,12 @@ _Last updated: 2026-11-06._
 - TrueNAS's validation image can't write files under amd64 emulation on
   Apple Silicon (`openat2`). Local rendering uses a plain-write shim; their
   CI is the final check.
-- The user's local Go (1.27.1) lacks stdlib security patches. Builds use
-  1.26.10 through the toolchain directive and Docker. Suggest
-  `brew upgrade go`.
-- Stale local branches can be deleted: `claude/catalog-ui-design`,
-  `claude/session-memo` and `claude/session-memo-2026-10-17`.
+- **Local workstation:**
+  - Go is 1.27.3 (patched 2026-11-08); Homebrew formulae are up to date.
+  - `fuse-t` 1.2.9 is still pending: it needs the user's password, so the
+    user runs `brew upgrade --cask fuse-t` in a terminal.
+  - The local container `aistor-ui-local` is stopped and runs an old build.
+    Recreate it with `ghcr.io/arturborycki/aistore-ui:0.2.0` if needed.
+- Housekeeping done 2026-11-06: only `main` remains, test Docker images are
+  removed, and TrueNAS's `apps_validation` image is kept for #6397. Remove
+  it once the PR is merged.
