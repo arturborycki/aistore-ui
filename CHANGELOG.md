@@ -14,6 +14,13 @@ Security update. No configuration changes.
 - Still pending upstream: the distroless base image's `tzdata` and
   `ca-certificates` updates (see 0.1.1).
 
+### Other changes
+
+- The TrueNAS YAML app (`deploy/truenas`) is configured with plain
+  `AISTOR_UI_*` variables instead of an embedded YAML block. Existing
+  installs keep working.
+- The login page showed the version as `vv0.2.0` on release builds.
+
 ## [0.2.0] - 2026-11-05
 
 ### Configuration
