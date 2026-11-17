@@ -154,7 +154,10 @@ export function LoginPage() {
             </form>
           )}
         </div>
-        {p?.version && p.version !== 'dev' && <p className="mt-4 text-center text-[11px] text-subtle">v{p.version}</p>}
+        {p?.version && p.version !== 'dev' && (
+          // Release builds already report "v0.2.0"; only bare numbers get the prefix.
+          <p className="mt-4 text-center text-[11px] text-subtle">{/^\d/.test(p.version) ? `v${p.version}` : p.version}</p>
+        )}
       </div>
     </div>
   )

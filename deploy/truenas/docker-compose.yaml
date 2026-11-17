@@ -1,28 +1,12 @@
 # AIStor Catalog UI as a TrueNAS app (TrueNAS 24.10 "Electric Eel" or later).
 #
 # Apps > Discover Apps > ⋮ > Install via YAML, name it "aistor-catalog-ui",
-# paste this file and edit the settings block below. See deploy/truenas/README.md.
+# paste this file and edit the settings at the top of `environment`.
+# See deploy/truenas/README.md.
 #
 # The UI serves HTTPS itself. Without a certificate of your own it creates a
 # self-signed one on first start (kept in the app's volume), which browsers ask
 # you to accept once.
-
-x-settings: &settings
-  # Required. The address people type in the browser: the NAS name or IP and
-  # the port below, e.g. https://truenas.local:30443
-  PUBLIC_URL: ""
-  # Other addresses of the same UI, comma separated (e.g. https://<nas-ip>:30443),
-  # or leave empty.
-  EXTRA_ORIGINS: ""
-  # Required. The AIStor S3 API (not the console) as seen from the NAS,
-  # e.g. http://<aistor-host>:<s3-port>
-  AISTOR_ENDPOINT: ""
-  AISTOR_NAME: "AIStor"
-  # AIStor users who may see everyone's activity, comma separated.
-  ADMIN_USERS: "minioadmin"
-  # Semantic models (Apache Ossie): a bucket with versioning enabled.
-  SEMANTIC_ENABLED: "true"
-  SEMANTIC_BUCKET: "aistor-semantics"
 
 services:
   catalog-ui:
@@ -31,39 +15,37 @@ services:
     # Releases: https://github.com/arturborycki/aistore-ui/releases
     image: ghcr.io/arturborycki/aistore-ui:0.2.0
     restart: unless-stopped
-    command: ["-config", "env:AISTOR_UI_CONFIG_YAML"]
     environment:
-      <<: *settings
-      AISTOR_UI_CONFIG: "env:AISTOR_UI_CONFIG_YAML" # also used by the health check
-      # The configuration itself; $${...} is filled in from the settings above
-      # when the UI starts. Nothing below needs editing for a typical setup.
-      AISTOR_UI_CONFIG_YAML: |
-        server:
-          listen: ":8443"
-          metricsListen: ":9090"
-          publicUrl: "$${PUBLIC_URL}"
-          extraOrigins: [$${EXTRA_ORIGINS}]
-          tlsSelfSigned: true
-          tlsCertFile: /var/lib/aistor-ui/tls/cert.pem
-          tlsKeyFile: /var/lib/aistor-ui/tls/key.pem
-        session:
-          store: memory
-          keys: # created on first start and kept in the app's volume
-            - id: truenas
-              file: /var/lib/aistor-ui/session.key
-              generate: true
-        auth:
-          builtin: { enabled: true }
-          adminUsers: [$${ADMIN_USERS}]
-        clusters:
-          - id: aistor
-            name: "$${AISTOR_NAME}"
-            endpoint: "$${AISTOR_ENDPOINT}"
-            region: us-east-1
-            stsDuration: 12h
-        semantic:
-          enabled: $${SEMANTIC_ENABLED}
-          bucket: "$${SEMANTIC_BUCKET}"
+      # --- Edit these -------------------------------------------------------
+      # Required. The address people type in the browser: the NAS name or IP
+      # and the port below, e.g. https://truenas.local:30443
+      AISTOR_UI_SERVER_PUBLIC_URL: ""
+      # Other addresses of the same UI, comma separated, or leave empty.
+      AISTOR_UI_SERVER_EXTRA_ORIGINS: ""
+      # Required. The AIStor S3 API (not the console) as seen from the NAS,
+      # e.g. http://<aistor-host>:<s3-port>
+      AISTOR_UI_CLUSTER_ENDPOINT: ""
+      AISTOR_UI_CLUSTER_NAME: "AIStor"
+      # AIStor users who may see everyone's activity, comma separated.
+      AISTOR_UI_AUTH_ADMIN_USERS: "minioadmin"
+      # Semantic models (Apache Ossie): a bucket with versioning enabled.
+      AISTOR_UI_SEMANTIC_ENABLED: "true"
+      AISTOR_UI_SEMANTIC_BUCKET: "aistor-semantics"
+      # Any other setting can be added as AISTOR_UI_<setting path>, for example
+      # AISTOR_UI_SESSION_IDLE_TIMEOUT: "45m" (see the README's Configuration).
+
+      # --- Fixed for this deployment ----------------------------------------
+      AISTOR_UI_SERVER_LISTEN: ":8443"
+      AISTOR_UI_SERVER_METRICS_LISTEN: ":9090" # health check
+      AISTOR_UI_SERVER_TLS_SELF_SIGNED: "true"
+      AISTOR_UI_SERVER_TLS_CERT_FILE: /var/lib/aistor-ui/tls/cert.pem
+      AISTOR_UI_SERVER_TLS_KEY_FILE: /var/lib/aistor-ui/tls/key.pem
+      # The session key is created on first start and kept in the app's volume.
+      AISTOR_UI_SESSION_KEY_FILE: /var/lib/aistor-ui/session.key
+      AISTOR_UI_SESSION_KEY_GENERATE: "true"
+      AISTOR_UI_AUTH_BUILTIN_ENABLED: "true"
+      AISTOR_UI_CLUSTER_ID: aistor
+      AISTOR_UI_CLUSTER_STS_DURATION: 12h
     ports:
       - "30443:8443"
     volumes:
