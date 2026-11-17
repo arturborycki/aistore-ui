@@ -4,6 +4,16 @@ All notable changes to this project are documented here. Versions follow
 [Semantic Versioning](https://semver.org/). Container images are published as
 `ghcr.io/arturborycki/aistore-ui:<version>`.
 
+## [0.2.1] - 2026-11-16
+
+Security update. No configuration changes.
+
+- Go 1.26.11: net/http fix, GO-2026-6859.
+- go-jose 4.1.9 and other minor Go module updates.
+- Frontend build: jsdom 31 and minor updates. Tests: Playwright 1.65.
+- Still pending upstream: the distroless base image's `tzdata` and
+  `ca-certificates` updates (see 0.1.1).
+
 ## [0.2.0] - 2026-11-05
 
 ### Configuration
@@ -91,6 +101,7 @@ First release.
 - `-healthcheck auto` probes the server's own listener.
 - Light, dark and system themes. WCAG 2.1 AA contrast is checked in CI.
 
+[0.2.1]: https://github.com/arturborycki/aistore-ui/releases/tag/v0.2.1
 [0.2.0]: https://github.com/arturborycki/aistore-ui/releases/tag/v0.2.0
 [0.1.1]: https://github.com/arturborycki/aistore-ui/releases/tag/v0.1.1
 [0.1.0]: https://github.com/arturborycki/aistore-ui/releases/tag/v0.1.0
