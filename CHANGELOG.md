@@ -4,7 +4,7 @@ All notable changes to this project are documented here. Versions follow
 [Semantic Versioning](https://semver.org/). Container images are published as
 `ghcr.io/arturborycki/aistore-ui:<version>`.
 
-## [0.2.1] - 2026-11-16
+## [0.2.1] - 2026-11-22
 
 Security update. No configuration changes.
 
