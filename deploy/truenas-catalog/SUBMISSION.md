@@ -1,6 +1,6 @@
 # Submitting to the TrueNAS community catalog
 
-**Status (2026-11-05):** submitted as
+**Status (2026-11-22):** submitted as
 [truenas/apps#6397](https://github.com/truenas/apps/pull/6397), linked to the
 App Request [truenas/apps#6035](https://github.com/truenas/apps/issues/6035).
 The PR is made from the branch `add-iceberg-catalog-ui` in the fork
@@ -10,8 +10,10 @@ The PR is made from the branch `add-iceberg-catalog-ui` in the fork
   non-starter, because users couldn't modify it.
 - **Response:** app v0.2.0 takes every setting from `AISTOR_UI_*` variables.
   The template now sets only what it owns plus the form answers, and leaves
-  the rest to *Additional Environment Variables*. The update is pinned to
+  the rest to *Additional Environment Variables*. The update was pinned to
   0.2.0.
+- **2026-11-22:** pinned to 0.2.1 (security update) and asked for a re-review
+  and approval of the CI workflows.
 `iceberg-catalog-ui/` here mirrors what was submitted.
 
 `iceberg-catalog-ui/` is a draft of the app for
