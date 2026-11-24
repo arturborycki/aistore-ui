@@ -127,7 +127,9 @@ People must open one of the names in `publicUrl` / `extraOrigins`; sign-in from 
 
 ## TrueNAS app
 
-On TrueNAS 24.10 or later, install the UI as a custom app: **Apps → Discover Apps → ⋮ → Install via YAML** with [`deploy/truenas/docker-compose.yaml`](deploy/truenas/docker-compose.yaml). Edit the settings block at the top (address and AIStor endpoint). The UI serves HTTPS on port 30443 with a self-signed certificate that it creates on first start and keeps. See [deploy/truenas/README.md](deploy/truenas/README.md).
+On TrueNAS 24.10 or later, install **Iceberg Catalog UI** from the community catalog: **Apps → Discover Apps**, search for "Iceberg". The form asks for the address people open and the AIStor endpoint; any other setting goes in *Additional Environment Variables* as `AISTOR_UI_*`. TrueNAS offers new versions as upgrades. The app's source in this repository is [deploy/truenas-catalog](deploy/truenas-catalog/SUBMISSION.md).
+
+To run it as a custom app instead, use **Apps → Discover Apps → ⋮ → Install via YAML** with [`deploy/truenas/docker-compose.yaml`](deploy/truenas/docker-compose.yaml). Edit the settings block at the top (address and AIStor endpoint). The UI serves HTTPS on port 30443 with a self-signed certificate that it creates on first start and keeps. See [deploy/truenas/README.md](deploy/truenas/README.md).
 
 ## Kubernetes
 

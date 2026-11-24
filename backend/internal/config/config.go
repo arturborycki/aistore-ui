@@ -410,6 +410,16 @@ func (c *Config) validate() error {
 			}
 		}
 	}
+	// Forms may hand over "https://nas:30443/"; the Origin header never has a
+	// path or a default port.
+	for i, o := range c.Server.ExtraOrigins {
+		u, err := url.Parse(o)
+		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+			errs = append(errs, fmt.Errorf("server.extraOrigins: %q is not an http(s) URL", o))
+			continue
+		}
+		c.Server.ExtraOrigins[i] = originOf(u)
+	}
 	if (c.Server.TLSCertFile == "") != (c.Server.TLSKeyFile == "") {
 		errs = append(errs, errors.New("server.tlsCertFile and server.tlsKeyFile must be set together"))
 	}
@@ -482,10 +492,19 @@ func (c *Config) CookieName() string {
 
 // AllowedOrigins returns the origins accepted for state-changing requests.
 func (c *Config) AllowedOrigins() []string {
-	u := c.Server.publicURL
-	out := []string{u.Scheme + "://" + u.Host}
+	out := []string{originOf(c.Server.publicURL)}
 	out = append(out, c.Server.ExtraOrigins...)
 	return out
+}
+
+// originOf returns u as browsers send it in the Origin header: scheme and host
+// only, without a default port.
+func originOf(u *url.URL) string {
+	host := u.Host
+	if p := u.Port(); (u.Scheme == "https" && p == "443") || (u.Scheme == "http" && p == "80") {
+		host = strings.TrimSuffix(host, ":"+p)
+	}
+	return u.Scheme + "://" + host
 }
 
 func (c *Config) Cluster(id string) (*Cluster, bool) {

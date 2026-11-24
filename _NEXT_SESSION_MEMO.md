@@ -1,6 +1,6 @@
 # Next session memo
 
-_Last updated: 2026-11-22._
+_Last updated: 2026-11-24._
 
 ## State of the repository
 
@@ -60,25 +60,23 @@ _Last updated: 2026-11-22._
   - CI hardening;
   - endpoints only from configuration.
 
-## TrueNAS community catalog (in progress)
+## TrueNAS community catalog (merged)
 
-- **PR:** https://github.com/truenas/apps/pull/6397, from the branch
-  `add-iceberg-catalog-ui` in the fork `arturborycki/apps`. It is linked from
-  App Request #6035.
-- **Review history:**
-  - stavros-k (2026-11-05): rendering the app's config file is "a
-    non-starter".
-  - We replied (2026-11-06) and switched to env-only configuration on 0.2.0.
-  - 2026-11-22: pinned to `0.2.1@sha256:06942d87…`, with a comment asking
-    for a re-review and workflow approval. The user approved posting it.
-- **Submitted app:**
-  - app `iceberg-catalog-ui`; catalog `version` 1.0.0 (not merged, so not
-    bumped); `app_version` 0.2.1;
-  - template library 2.3.18; default port 30553; tests use 8443.
-- **Waiting on:** the maintainers' re-review, and approval of workflows for a
-  first-time contributor (their CI hasn't run yet).
-- `deploy/truenas-catalog/` mirrors the submission. `SUBMISSION.md` has the
-  status and the process for updates.
+- **Merged 2026-11-24** by stavros-k: truenas/apps#6397 (merge commit
+  `a547331`), community train.
+  - App `iceberg-catalog-ui`, titled "Iceberg Catalog UI".
+  - Catalog version 1.0.0, app version 0.2.1.
+  - Template library 2.3.21; default port 30621.
+- The maintainer finished the app themselves before merging. The details are
+  in `deploy/truenas-catalog/SUBMISSION.md`. In short:
+  - an explicit health check (`use_built_in` is only for custom apps);
+  - `type: uri` instead of regexes;
+  - one test file;
+  - a generated README.
+- **Updates:** Renovate there bumps the tag and digest on each `vX.Y.Z`
+  release. Template or form changes need our own PR from the fork, with
+  `version` bumped.
+- `deploy/truenas-catalog/iceberg-catalog-ui/` is a copy of the merged app.
 
 ## Deployments
 
@@ -95,11 +93,9 @@ _Last updated: 2026-11-22._
 
 ## Next steps
 
-1. **Follow truenas/apps#6397.**
-   - Fixes go to the fork branch; retest with the plain-write render shim.
-   - Bump `app_version` and the digest on each release while the PR is open.
-   - Posting there acts under the user's account. Only do it when the user
-     asks.
+1. **Check the catalog listing.** Once TrueNAS publishes the catalog, the
+   app shows under Apps → Discover Apps ("Iceberg"). When the next release
+   is cut, a Renovate PR should appear on truenas/apps.
 2. **Upgrade the user's TrueNAS app to 0.2.1** (the user does it; see
    Deployments). Then run a live sign-in test. The lab AIStor host wasn't
    reachable from the Mac on 2026-11-16 (no ping replies, S3 port timed out).
@@ -113,13 +109,10 @@ _Last updated: 2026-11-22._
 
 ## Blockers and open questions
 
-- The catalog merge depends on TrueNAS maintainers (re-review, CI approval,
-  and the CDN upload of the icon and screenshots).
 - TrueNAS's validation image can't write files under amd64 emulation on
   Apple Silicon (`openat2`). Local rendering uses a plain-write shim; their
   CI is the final check.
 - **Local workstation:**
-  - `fuse-t` 1.2.9 is still pending. It needs the user's password, so the
-    user runs `brew upgrade --cask fuse-t` in a terminal.
-  - TrueNAS's `apps_validation` image is kept for #6397. Remove it once the
-    PR is merged.
+  - `fuse-t` is at 1.2.9 (done 2026-11-22).
+  - The `apps_validation` image was removed after the merge. Pull it again
+    for a future template PR.

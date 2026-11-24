@@ -4,6 +4,11 @@ Runs the UI as a TrueNAS custom app (TrueNAS 24.10 "Electric Eel" or later,
 which runs apps with Docker). The UI serves HTTPS itself on port 30443 and
 signs users in with their AIStor access keys.
 
+The UI is also in the TrueNAS community catalog as **Iceberg Catalog UI**
+(**Apps → Discover Apps**, search for "Iceberg"). A catalog install has a
+settings form and is offered upgrades, so it is the simpler choice. Use this
+YAML when you want full control over the container.
+
 ## Install
 
 1. Open **Apps → Discover Apps → ⋮ → Install via YAML**. Name the app

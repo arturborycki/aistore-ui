@@ -1,123 +1,62 @@
-# Submitting to the TrueNAS community catalog
+# The TrueNAS community catalog app
 
-**Status (2026-11-22):** submitted as
-[truenas/apps#6397](https://github.com/truenas/apps/pull/6397), linked to the
-App Request [truenas/apps#6035](https://github.com/truenas/apps/issues/6035).
-The PR is made from the branch `add-iceberg-catalog-ui` in the fork
-`arturborycki/apps`.
+**Status (2026-11-24):** merged into the `community` train of
+[truenas/apps](https://github.com/truenas/apps) as **Iceberg Catalog UI**
+(`iceberg-catalog-ui`), in
+[truenas/apps#6397](https://github.com/truenas/apps/pull/6397). It shipped as
+catalog version 1.0.0 with app version 0.2.1, and its default port is 30621.
+The App Request was [truenas/apps#6035](https://github.com/truenas/apps/issues/6035).
 
-- **First review** (stavros-k): rendering the app's config file was a
-  non-starter, because users couldn't modify it.
-- **Response:** app v0.2.0 takes every setting from `AISTOR_UI_*` variables.
-  The template now sets only what it owns plus the form answers, and leaves
-  the rest to *Additional Environment Variables*. The update was pinned to
-  0.2.0.
-- **2026-11-22:** pinned to 0.2.1 (security update) and asked for a re-review
-  and approval of the CI workflows.
-`iceberg-catalog-ui/` here mirrors what was submitted.
+`iceberg-catalog-ui/` here is a copy of the merged app (truenas/apps
+`a547331`). The upstream copy is the real one; refresh this copy when it
+changes.
 
-`iceberg-catalog-ui/` is a draft of the app for
-[truenas/apps](https://github.com/truenas/apps), in the format described in
-their [CONTRIBUTIONS.md](https://github.com/truenas/apps/blob/master/CONTRIBUTIONS.md).
-New apps go to the `community` train. The TrueNAS team reviews every
-submission and may decline one.
+## Updates
 
-## Steps
+- **New releases:** truenas/apps runs Renovate on image tags. Each new
+  `vX.Y.Z` release here becomes a PR there, which bumps the tag and digest in
+  `ix_values.yaml`, `app_version`, and the catalog `version`. Nothing to do on
+  our side.
+- **Changes to the template or the form:** open a PR on truenas/apps from a
+  branch of the fork `arturborycki/apps`, based on a fresh `upstream/master`.
+  Bump `version` in `app.yaml`. Use the PR template's "App Update" section.
 
-1. **Open an App Request issue** in truenas/apps (text below) and wait for a
-   reply. Their PR template asks whether the app was discussed in an issue
-   first.
-2. **Fork truenas/apps** and copy `iceberg-catalog-ui/` to
-   `ix-dev/community/iceberg-catalog-ui/`.
-3. **Set the template library version.** Use the newest `library/2.x.y`.
-   Then run `devbox run copy-lib`, or set `lib_version_hash` to that version's
-   entry in `library/hashes.yaml`. The generated `templates/library/` is
-   git-ignored in truenas/apps (their CI creates it). For local rendering,
-   copy `library/<version>/` to `templates/library/base_v<version with _>/`.
-   Don't commit it, despite what older versions of their guide say.
-   **Port:** the default must be the next free port that
-   `./.github/scripts/port_validation.py` prints. Don't pick one by hand.
-   Test files use a non-default port (8443).
-4. **Test both scenarios** on a Linux amd64 machine. Their validation image
-   needs the `openat2` system call, which emulated amd64 on Apple Silicon
-   lacks.
+## What the maintainer changed before merging
 
-   ```bash
-   ./.github/scripts/ci.py --app iceberg-catalog-ui --train community --test-file basic-values.yaml
-   ./.github/scripts/ci.py --app iceberg-catalog-ui --train community --test-file https-values.yaml
-   ./.github/scripts/generate_metadata.py --app iceberg-catalog-ui --train community
-   ./.github/scripts/port_validation.py
-   ```
+The maintainer (stavros-k) made these changes and asked for these conventions:
 
-5. **Open the PR** with the "App Addition" template (text below). Attach
-   `assets/icon.png` and the screenshots; the reviewer uploads them to the
-   TrueNAS CDN and gives you the URLs for `app.yaml` and `item.yaml`.
+- **Health check:** `healthcheck.use_built_in()` is only for custom apps.
+  Catalog apps set an explicit test:
+  `/usr/local/bin/aistor-ui -healthcheck http://127.0.0.1:<internal_metrics_port>/healthz`.
+- **URL fields:** use `type: uri` instead of `valid_chars` regexes. The form
+  no longer rejects a path or a trailing slash, so the app normalizes them:
+  a trailing slash or path on the public URL is ignored, and extra origins
+  become `scheme://host[:port]`.
+- **Environment variables:** variables that come from optional answers are
+  always set, possibly empty. Empty lists are ignored.
+- **Tests:** only `basic-values.yaml`. Its health check already goes over
+  HTTPS, so a separate HTTPS test isn't needed.
+- **README and notes:** follow the other apps. The README is generated, with
+  the warnings block, and there is no custom notes body.
+- **Other changes:**
+  - template library 2.3.21;
+  - port 30621;
+  - the title "Iceberg Catalog UI";
+  - the screenshots on the TrueNAS CDN;
+  - the changelog URL now points at the GitHub releases;
+  - a declared `host_network` risk.
 
-**Updates after the merge:** truenas/apps runs Renovate on image tags. Each new
-`vX.Y.Z` release here becomes a PR there that bumps the tag and digest in
-`ix_values.yaml` and the app's `version`. Changes to the template or the form
-need a PR from us, with `version` bumped. Base the branch on a fresh
-`upstream/master` in the fork.
+## Testing a change locally
 
-## App Request issue
+Rendering needs TrueNAS's `apps_validation` image on Linux amd64. Under
+emulation on Apple Silicon the image fails on the `openat2` system call, so
+local rendering needs a shim that writes files the plain way. Their CI is the
+final check.
 
-**App Name:** Iceberg Catalog UI (for AIStor)
+```bash
+./.github/scripts/ci.py --app iceberg-catalog-ui --train community --test-file basic-values.yaml
+./.github/scripts/port_validation.py
+```
 
-**App Description:** A multi-user web UI for the Apache Iceberg REST catalog of
-MinIO AIStor Tables. It covers:
-
-- warehouses, namespaces, tables and views;
-- schema evolution, snapshots, branches and time travel;
-- per-column statistics and data files, read from Iceberg manifests;
-- Apache Ossie semantic models.
-
-Users sign in with their own AIStor access keys and work with their own
-temporary credentials. The app holds no shared credentials. This is a
-community project, not a MinIO product.
-
-**App Website / GitHub Repo:** https://github.com/arturborycki/aistore-ui
-
-**Docker Installation Documentation:**
-https://github.com/arturborycki/aistore-ui#readme (see also `deploy/truenas/README.md`)
-
-**App Icon URL:**
-https://raw.githubusercontent.com/arturborycki/aistore-ui/main/deploy/truenas-catalog/assets/icon.png
-
-**Docker Image:** `ghcr.io/arturborycki/aistore-ui` (semver tags, amd64 and arm64)
-
-**App Category:** storage
-
-**Additional Information:** The app complements TrueNAS users who run AIStor,
-including as a TrueNAS app. It is a single distroless container that runs as
-non-root with no capabilities. Its only state is a session key and an optional
-self-signed certificate, kept in one ixVolume. It can use a TrueNAS
-certificate.
-
-## Pull request (App Addition template)
-
-- [x] I have opened an issue to discuss this app addition before submitting this pull request.
-- [x] Part or All of this PR was generated by an LLM.
-
-**Description:** Adds Iceberg Catalog UI (for AIStor) to the community train:
-a multi-user web UI for the Apache Iceberg catalog of MinIO AIStor Tables.
-
-**App Information**
-
-- Upstream: https://github.com/arturborycki/aistore-ui
-- Documentation: https://github.com/arturborycki/aistore-ui#readme
-- App Version: 0.1.0
-
-**Testing:** `basic-values.yaml` (self-signed certificate) and
-`https-values.yaml` (TrueNAS certificate, semantic models enabled).
-
-**Icons and Screenshots:** `icon.png` (512×512) and four screenshots attached.
-
-**Special Notes**
-
-- The image is distroless, with no shell or curl. The app uses the image's
-  own health check (`healthcheck.use_built_in()`), which probes `/healthz` on
-  an internal metrics port.
-- HTTPS is always on. The app uses the selected TrueNAS certificate, or else
-  creates a self-signed certificate in its storage.
-- The Public URL must match the address users open, because sign-in is
-  origin-checked.
+The generated `templates/library/` is git-ignored in truenas/apps (their CI
+creates it). Don't commit it.

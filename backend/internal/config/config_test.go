@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"slices"
 	"testing"
 )
 
@@ -58,6 +59,32 @@ auth: { builtin: { enabled: true } }
 clusters: [{ id: lab, endpoint: "http://aistor:9000" }]
 `)); err == nil {
 		t.Error("generate without file must be an error")
+	}
+}
+
+func TestOriginsNormalized(t *testing.T) {
+	c, err := Parse([]byte(`
+server:
+  publicUrl: "https://nas.local:443/"
+  extraOrigins: ["https://192.0.2.10:30621/", "https://nas:443", "http://localhost:80/ui"]
+session: { keys: [{ id: a, value: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" }] }
+auth: { builtin: { enabled: true } }
+clusters: [{ id: lab, endpoint: "http://aistor:9000" }]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"https://nas.local", "https://192.0.2.10:30621", "https://nas", "http://localhost"}
+	if got := c.AllowedOrigins(); !slices.Equal(got, want) {
+		t.Errorf("origins = %q, want %q", got, want)
+	}
+	if _, err := Parse([]byte(`
+server: { publicUrl: "https://nas.local", extraOrigins: ["nas.local:30621"] }
+session: { keys: [{ id: a, value: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" }] }
+auth: { builtin: { enabled: true } }
+clusters: [{ id: lab, endpoint: "http://aistor:9000" }]
+`)); err == nil {
+		t.Error("an origin without a scheme must be an error")
 	}
 }
 

@@ -4,6 +4,15 @@ All notable changes to this project are documented here. Versions follow
 [Semantic Versioning](https://semver.org/). Container images are published as
 `ghcr.io/arturborycki/aistore-ui:<version>`.
 
+## [Unreleased]
+
+- The UI is in the TrueNAS community catalog as **Iceberg Catalog UI**.
+- Additional origins (`server.extraOrigins`) are reduced to
+  `scheme://host[:port]`, so a trailing slash, a path or a default port no
+  longer makes sign-in from that address fail. An origin that isn't an
+  http(s) URL stops startup with its value. The public URL's default port is
+  dropped the same way.
+
 ## [0.2.1] - 2026-11-22
 
 Security update. No configuration changes.
@@ -108,6 +117,7 @@ First release.
 - `-healthcheck auto` probes the server's own listener.
 - Light, dark and system themes. WCAG 2.1 AA contrast is checked in CI.
 
+[Unreleased]: https://github.com/arturborycki/aistore-ui/compare/v0.2.1...HEAD
 [0.2.1]: https://github.com/arturborycki/aistore-ui/releases/tag/v0.2.1
 [0.2.0]: https://github.com/arturborycki/aistore-ui/releases/tag/v0.2.0
 [0.1.1]: https://github.com/arturborycki/aistore-ui/releases/tag/v0.1.1
